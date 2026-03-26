@@ -24,3 +24,9 @@ _Permanent log of bugs, corrections, and decisions. Updated after every user cor
 - Liquidity spans have **empty class attribute** (`class=""`), NOT `MuiTypography-label` — always verify selectors with console before assuming
 
 **Rule: always ask for console output before writing a DOM selector for a new field.**
+
+## Leg odds and liquidity must come from book_odds, not main-row spans
+
+The expanded table's DOM comes before the leg buttons in DOM order, so `querySelectorAll('span.MuiTypography-oddsRobotoMono')` on the whole row picks up BEST/average column odds first — not the leg odds.
+
+**Fix:** Call `scrapeBookOdds` before showing the side picker modal. Get leg `odds` and `liquidity` from `book_odds[leg.book][side_i]` — the same expanded table source that already works correctly for `book_odds`.
