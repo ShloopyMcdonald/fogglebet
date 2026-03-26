@@ -1,5 +1,5 @@
 // FoggleBet content script — picktheodds.app overlay
-// Injects "Log Arb" buttons on each [rowtype="ARBITRAGE"] row
+// Injects "Log Bet" buttons on expanded [rowtype="ARBITRAGE"] rows only
 
 console.log('[FoggleBet] content script loaded', window.location.href)
 
@@ -59,10 +59,14 @@ console.log('[FoggleBet] content script loaded', window.location.href)
       // Leg href (sportsbook URL)
       const href = leg.getAttribute('href') ?? null
 
-      legData.push({ book, sideLabel, href })
+      // Liquidity shown on main row for exchange books (span.MuiTypography-label containing $)
+      const liquidityEl = Array.from(leg.querySelectorAll('span.MuiTypography-label'))
+        .find(el => el !== sideEl && el.textContent?.includes('$'))
+      const liquidity = liquidityEl?.textContent?.trim() ?? null
+
+      legData.push({ book, sideLabel, href, liquidity })
     }
 
-    // Liquidity — input[type="number"] labelled for exchanges (TBD selector)
     // Leg odds — spans are siblings to the <a> tags, not inside them
     const oddsSpans = row.querySelectorAll('span.MuiTypography-oddsRobotoMono')
     const oddsValues = Array.from(oddsSpans).map(el => {
@@ -124,27 +128,142 @@ console.log('[FoggleBet] content script loaded', window.location.href)
     return null
   }
 
+  // ─── Book odds scraping ────────────────────────────────────────────────────
+
+  const TARGET_BOOKS = ['NoVig', 'ProphetX', 'Polymarket (INT)', 'Pinnacle', 'Circa', 'FanDuel']
+  const EXCHANGE_BOOKS = new Set(['NoVig', 'ProphetX', 'Polymarket (INT)'])
+  const SHARP_BOOKS = new Set(['Pinnacle', 'Circa'])
+
+  function isRowExpanded(row) {
+    return row.querySelectorAll('span.MuiTypography-oddsRobotoMono').length > 2
+  }
+
+  function scrapeBookOdds(row, takenBooks, sideLabels) {
+    const booksToCapture = [...TARGET_BOOKS]
+    for (const b of takenBooks) {
+      if (b && !booksToCapture.includes(b)) booksToCapture.push(b)
+    }
+
+    const result = {}
+
+    // Find the header table: the table whose first row contains multiple div[aria-label]
+    // (book logos). This works regardless of whether they're inside <a> tags.
+    const tables = Array.from(row.querySelectorAll('table'))
+    let headerTable = null
+    let headerRow = null
+    for (const table of tables) {
+      const firstRow = table.querySelector('tr')
+      if (!firstRow) continue
+      if (firstRow.querySelectorAll('div[aria-label]').length > 1) {
+        headerTable = table
+        headerRow = firstRow
+        break
+      }
+    }
+
+    if (!headerTable || !headerRow) {
+      console.warn('[FoggleBet] scrapeBookOdds — could not find header table. Tables found:', tables.length)
+      return result
+    }
+
+    // Build column index map: bookName -> colIndex
+    // Try div[aria-label], then img[alt], then img[title]
+    const colMap = {}
+    Array.from(headerRow.cells).forEach((cell, i) => {
+      const name =
+        cell.querySelector('div[aria-label]')?.getAttribute('aria-label')?.trim() ||
+        cell.querySelector('img')?.getAttribute('alt')?.trim() ||
+        cell.querySelector('img')?.getAttribute('title')?.trim()
+      if (name) colMap[name] = i
+    })
+    console.log('[FoggleBet] scrapeBookOdds — colMap:', colMap)
+
+    // Data rows live in tables other than the header table
+    const dataRows = Array.from(row.querySelectorAll('tr'))
+      .filter(tr => !headerTable.contains(tr))
+
+    for (const bookName of booksToCapture) {
+      const colIndex = colMap[bookName]
+      if (colIndex === undefined) {
+        console.log(`[FoggleBet] scrapeBookOdds — "${bookName}" not in colMap`)
+        continue
+      }
+
+      const sides = {}
+
+      for (const dataRow of dataRows) {
+        const oddsCell = dataRow.cells[colIndex]
+        if (!oddsCell) continue
+
+        const oddsSpans = Array.from(oddsCell.querySelectorAll('span.MuiTypography-oddsRobotoMono'))
+        const amountEls = Array.from(oddsCell.querySelectorAll('span.MuiTypography-label'))
+          .filter(el => el.textContent?.includes('$'))
+
+        // Derive side labels from cells[0] direct children (e.g. "Over 2.5", "Under 2.5").
+        // Fall back to passed-in leg labels, then index-based.
+        const sideCell = dataRow.cells[0]
+        const domSideLabels = sideCell
+          ? Array.from(sideCell.children).map(el => el.textContent?.trim()).filter(Boolean)
+          : []
+        const effectiveSideLabels = domSideLabels.length === oddsSpans.length
+          ? domSideLabels
+          : (sideLabels ?? [])
+
+        oddsSpans.forEach((span, i) => {
+          const sideKey = effectiveSideLabels[i] ?? `side_${i}`
+          const oddsText = span.textContent?.trim()
+          const odds = oddsText ? parseInt(oddsText.replace('+', ''), 10) : null
+          const entry = { odds }
+
+          const amountText = amountEls[i]?.textContent?.trim() ?? null
+          if (amountText) {
+            if (EXCHANGE_BOOKS.has(bookName)) entry.liquidity = amountText
+            else if (SHARP_BOOKS.has(bookName)) entry.limit = amountText
+          }
+
+          sides[sideKey] = entry
+        })
+      }
+
+      if (Object.keys(sides).length > 0) result[bookName] = sides
+    }
+
+    return result
+  }
+
   // ─── UI helpers ────────────────────────────────────────────────────────────
 
   const ROW_ATTR = 'data-fogglebet-injected'
+  const rowButtons = new Map()
+
+  // rAF loop: only needed to clean up buttons whose rows have been removed from the DOM
+  function updateAllPositions() {
+    for (const [row, btn] of rowButtons.entries()) {
+      if (!document.body.contains(row) && !btn.disabled) {
+        btn.remove()
+        rowButtons.delete(row)
+      }
+    }
+    requestAnimationFrame(updateAllPositions)
+  }
+  updateAllPositions()
 
   function injectButton(row) {
-    if (row.hasAttribute(ROW_ATTR)) return // already injected
+    if (row.hasAttribute(ROW_ATTR)) return
     row.setAttribute(ROW_ATTR, 'true')
-    console.log('[FoggleBet] injecting button into row')
 
-    // Button lives inside the row so it moves with it — no JS position tracking needed
+    // Button lives inside the row so it scrolls with it naturally
     if (getComputedStyle(row).position === 'static') row.style.position = 'relative'
 
     const btn = document.createElement('button')
-    btn.textContent = 'Log Arb'
+    btn.textContent = 'Log Bet'
     btn.style.cssText = `
       position: absolute;
-      top: 5px;
       left: 50%;
+      top: 5px;
       transform: translateX(-50%);
       z-index: 99998;
-      background: linear-gradient(135deg, #0f1f5c 0%, #1e3a8a 100%);
+      background: linear-gradient(135deg, #060e2b 0%, #0f1f5c 100%);
       color: #fff;
       border: 1px solid rgba(255,255,255,0.2);
       border-radius: 8px;
@@ -156,23 +275,25 @@ console.log('[FoggleBet] content script loaded', window.location.href)
       line-height: 1.4;
       letter-spacing: 0.02em;
       box-shadow: 0 2px 8px rgba(37,99,235,0.35);
+      white-space: nowrap;
     `
     btn.addEventListener('mouseenter', () => {
-      btn.style.background = 'linear-gradient(135deg, #172554 0%, #1e3a8a 100%)'
+      if (!btn.disabled) btn.style.background = 'linear-gradient(135deg, #0a1435 0%, #0f1f5c 100%)'
     })
     btn.addEventListener('mouseleave', () => {
-      btn.style.background = 'linear-gradient(135deg, #0f1f5c 0%, #1e3a8a 100%)'
+      if (!btn.disabled) btn.style.background = 'linear-gradient(135deg, #060e2b 0%, #0f1f5c 100%)'
     })
     btn.addEventListener('click', (e) => {
       e.stopPropagation()
-      handleLogClick(row, btn)
+      handleLogClick(row, btn).catch(err => {
+        console.error('[FoggleBet] handleLogClick error:', err)
+        setButtonState(btn, 'error')
+      })
     })
 
     row.appendChild(btn)
+    rowButtons.set(row, btn)
   }
-
-  // Check for new rows every 500ms (new arbs appearing, layout changes)
-  setInterval(injectAllRows, 500)
 
   function setButtonState(btn, state) {
     if (state === 'loading') {
@@ -193,8 +314,8 @@ console.log('[FoggleBet] content script loaded', window.location.href)
   }
 
   function resetButton(btn) {
-    btn.textContent = 'Log Arb'
-    btn.style.background = 'linear-gradient(135deg, #0f1f5c 0%, #1e3a8a 100%)'
+    btn.textContent = 'Log Bet'
+    btn.style.background = 'linear-gradient(135deg, #060e2b 0%, #0f1f5c 100%)'
     btn.disabled = false
   }
 
@@ -268,7 +389,7 @@ console.log('[FoggleBet] content script loaded', window.location.href)
       sideBtn.addEventListener('mouseleave', () => { sideBtn.style.borderColor = '#334155' })
       sideBtn.addEventListener('click', () => {
         document.body.removeChild(overlay)
-        onSelect(i) // index of taken side
+        onSelect(i)
       })
 
       btnRow.appendChild(sideBtn)
@@ -298,7 +419,7 @@ console.log('[FoggleBet] content script loaded', window.location.href)
 
   // ─── Log click handler ────────────────────────────────────────────────────
 
-  function handleLogClick(row, btn) {
+  async function handleLogClick(row, btn) {
     const arbData = scrapeRow(row)
 
     if (arbData.legs.length < 2) {
@@ -310,10 +431,27 @@ console.log('[FoggleBet] content script loaded', window.location.href)
     showSidePicker(arbData, async (takenIndex) => {
       setButtonState(btn, 'loading')
 
+      const takenBooks = arbData.legs.map(l => l.book).filter(Boolean)
+      const sideLabels = arbData.legs.map((l, i) => l.side_label ?? `side_${i}`)
+      arbData.book_odds = scrapeBookOdds(row, takenBooks, sideLabels)
+      console.log('[FoggleBet] book_odds:', JSON.stringify(arbData.book_odds))
+
       const arb_id = crypto.randomUUID()
       const source_url = window.location.href
 
-      const payload = arbData.legs.map((leg, i) => ({
+      const payload = arbData.legs.map((leg, i) => {
+        const fullOdds = arbData.book_odds ?? {}
+        // Pick the i-th side from each book by index (keys match DOM order, not leg labels)
+        const legBookOdds = Object.fromEntries(
+          Object.entries(fullOdds)
+            .map(([book, sides]) => {
+              const sideKey = Object.keys(sides)[i]
+              return sideKey ? [book, { [sideKey]: sides[sideKey] }] : null
+            })
+            .filter(Boolean)
+        )
+
+        return {
         arb_id,
         is_taken: i === takenIndex,
         game_time: arbData.game_time,
@@ -322,13 +460,15 @@ console.log('[FoggleBet] content script loaded', window.location.href)
         market: arbData.market,
         line: leg.side_label ?? null,
         book: leg.book ?? 'Unknown',
-      odds: leg.odds ?? 0,
+        odds: leg.odds ?? 0,
         liquidity: leg.liquidity ?? null,
-        ev_percent: null, // not scraped at row level
+        ev_percent: null,
         arb_percent: arbData.arb_percent,
+        book_odds: Object.keys(legBookOdds).length > 0 ? legBookOdds : null,
         stake: 1,
         source_url,
-      }))
+        }
+      })
 
       chrome.runtime.sendMessage({ type: 'POST_BETS', payload }, (response) => {
         if (chrome.runtime.lastError) {
@@ -346,11 +486,9 @@ console.log('[FoggleBet] content script loaded', window.location.href)
     })
   }
 
-  // ─── Row detection (works in both narrow and wide layouts) ───────────────
+  // ─── Row detection ────────────────────────────────────────────────────────
 
   function findArbRows() {
-    // Identify rows by content: nearest ancestor of the arb %/$ header
-    // that contains at least 2 book name elements. Works in all layouts.
     const seen = new Set()
     const rows = []
     document.querySelectorAll('span.MuiTypography-navHeader').forEach(el => {
@@ -373,20 +511,17 @@ console.log('[FoggleBet] content script loaded', window.location.href)
   // ─── Row injection + MutationObserver ─────────────────────────────────────
 
   function injectAllRows() {
-    const rows = findArbRows()
-    rows.forEach(injectButton)
+    for (const row of findArbRows()) {
+      if (isRowExpanded(row)) {
+        injectButton(row)
+      }
+    }
   }
 
-  // Initial injection
   injectAllRows()
 
-  // Watch for SPA re-renders — picktheodds dynamically adds/removes rows
-  const observer = new MutationObserver(() => {
-    injectAllRows()
-  })
+  setInterval(injectAllRows, 500)
 
-  observer.observe(document.body, {
-    childList: true,
-    subtree: true,
-  })
+  const observer = new MutationObserver(injectAllRows)
+  observer.observe(document.body, { childList: true, subtree: true })
 })()
