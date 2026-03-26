@@ -8,6 +8,14 @@ console.log('[FoggleBet] content script loaded', window.location.href)
 
   // ─── Scraping helpers ──────────────────────────────────────────────────────
 
+  function parseDollarAmount(text) {
+    if (!text) return null
+    const clean = text.replace('$', '').replace(/,/g, '').trim()
+    if (clean.endsWith('k')) return parseFloat(clean) * 1000
+    const n = parseFloat(clean)
+    return isNaN(n) ? null : n
+  }
+
   function scrapeRow(row) {
     const warn = (msg) => console.warn('[FoggleBet]', msg)
 
@@ -62,7 +70,7 @@ console.log('[FoggleBet] content script loaded', window.location.href)
       // Liquidity shown on main row for exchange books (span.MuiTypography-label containing $)
       const liquidityEl = Array.from(leg.querySelectorAll('span.MuiTypography-label'))
         .find(el => el !== sideEl && el.textContent?.includes('$'))
-      const liquidity = liquidityEl?.textContent?.trim() ?? null
+      const liquidity = parseDollarAmount(liquidityEl?.textContent?.trim() ?? null)
 
       legData.push({ book, sideLabel, href, liquidity })
     }
