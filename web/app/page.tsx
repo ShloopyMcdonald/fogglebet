@@ -1,4 +1,5 @@
 import { supabase, type Bet } from '@/lib/supabase'
+import { DeleteArbButton } from '@/components/DeleteArbButton'
 
 export const revalidate = 0 // always fresh
 
@@ -99,6 +100,7 @@ export default async function BetFeed() {
                   <th className="text-center px-4 py-3 font-medium">Side</th>
                   <th className="text-center px-4 py-3 font-medium">Result</th>
                   <th className="text-right px-4 py-3 font-medium">P&amp;L</th>
+                  <th className="px-4 py-3" />
                 </tr>
               </thead>
               <tbody>
@@ -164,6 +166,9 @@ export default async function BetFeed() {
                         {bet.profit_loss != null
                           ? `${bet.profit_loss > 0 ? '+' : ''}${bet.profit_loss.toFixed(2)}u`
                           : '—'}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        {isNewArb && <DeleteArbButton arbId={bet.arb_id} />}
                       </td>
                     </tr>
                   )

@@ -1,5 +1,7 @@
-// FoggleBet content script — picktheodds.com overlay
+// FoggleBet content script — picktheodds.app overlay
 // Injects "Log Arb" buttons on each [rowtype="ARBITRAGE"] row
+
+console.log('[FoggleBet] content script loaded', window.location.href)
 
 ;(function () {
   'use strict'
@@ -60,15 +62,15 @@
       legData.push({ book, sideLabel, href })
     }
 
-    // Leg odds — input[type="text"] (two per row, outside the <a> tags)
-    const oddsInputs = row.querySelectorAll('input[type="text"]')
-    const oddsValues = []
-    for (const inp of oddsInputs) {
-      const val = inp.value?.trim()
-      if (val) oddsValues.push(parseInt(val.replace('+', ''), 10))
-    }
-
     // Liquidity — input[type="number"] labelled for exchanges (TBD selector)
+    // Leg odds — spans are siblings to the <a> tags, not inside them
+    const oddsSpans = row.querySelectorAll('span.MuiTypography-oddsRobotoMono')
+    const oddsValues = Array.from(oddsSpans).map(el => {
+      const text = el.textContent?.trim()
+      return text ? parseInt(text.replace('+', ''), 10) : null
+    })
+    if (oddsValues.length < 2) warn(`expected 2 odds spans, found ${oddsValues.length}`)
+
     // Wager amounts
     const wager0 = row.querySelector('input[type="number"][name="0"]')
     const wager1 = row.querySelector('input[type="number"][name="1"]')
@@ -124,43 +126,53 @@
 
   // ─── UI helpers ────────────────────────────────────────────────────────────
 
-  const BUTTON_ATTR = 'data-fogglebet'
+  const ROW_ATTR = 'data-fogglebet-injected'
 
   function injectButton(row) {
-    if (row.querySelector(`[${BUTTON_ATTR}]`)) return // already injected
+    if (row.hasAttribute(ROW_ATTR)) return // already injected
+    row.setAttribute(ROW_ATTR, 'true')
+    console.log('[FoggleBet] injecting button into row')
+
+    // Button lives inside the row so it moves with it — no JS position tracking needed
+    if (getComputedStyle(row).position === 'static') row.style.position = 'relative'
 
     const btn = document.createElement('button')
-    btn.setAttribute(BUTTON_ATTR, 'true')
     btn.textContent = 'Log Arb'
     btn.style.cssText = `
       position: absolute;
-      top: 8px;
-      right: 8px;
-      z-index: 9999;
-      background: #2563eb;
+      top: 5px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 99998;
+      background: linear-gradient(135deg, #0f1f5c 0%, #1e3a8a 100%);
       color: #fff;
-      border: none;
-      border-radius: 4px;
-      padding: 4px 10px;
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 8px;
+      padding: 6px 14px;
       font-size: 12px;
       font-weight: 600;
       cursor: pointer;
       font-family: system-ui, sans-serif;
       line-height: 1.4;
+      letter-spacing: 0.02em;
+      box-shadow: 0 2px 8px rgba(37,99,235,0.35);
     `
-    btn.addEventListener('mouseenter', () => { btn.style.background = '#1d4ed8' })
-    btn.addEventListener('mouseleave', () => { btn.style.background = '#2563eb' })
+    btn.addEventListener('mouseenter', () => {
+      btn.style.background = 'linear-gradient(135deg, #172554 0%, #1e3a8a 100%)'
+    })
+    btn.addEventListener('mouseleave', () => {
+      btn.style.background = 'linear-gradient(135deg, #0f1f5c 0%, #1e3a8a 100%)'
+    })
     btn.addEventListener('click', (e) => {
       e.stopPropagation()
       handleLogClick(row, btn)
     })
 
-    // Ensure relative positioning on row for absolute button placement
-    const pos = getComputedStyle(row).position
-    if (pos === 'static') row.style.position = 'relative'
-
     row.appendChild(btn)
   }
+
+  // Check for new rows every 500ms (new arbs appearing, layout changes)
+  setInterval(injectAllRows, 500)
 
   function setButtonState(btn, state) {
     if (state === 'loading') {
@@ -182,7 +194,7 @@
 
   function resetButton(btn) {
     btn.textContent = 'Log Arb'
-    btn.style.background = '#2563eb'
+    btn.style.background = 'linear-gradient(135deg, #0f1f5c 0%, #1e3a8a 100%)'
     btn.disabled = false
   }
 
@@ -310,7 +322,7 @@
         market: arbData.market,
         line: leg.side_label ?? null,
         book: leg.book ?? 'Unknown',
-        odds: leg.odds ?? 0,
+      odds: leg.odds ?? 0,
         liquidity: leg.liquidity ?? null,
         ev_percent: null, // not scraped at row level
         arb_percent: arbData.arb_percent,
@@ -334,10 +346,34 @@
     })
   }
 
+  // ─── Row detection (works in both narrow and wide layouts) ───────────────
+
+  function findArbRows() {
+    // Identify rows by content: nearest ancestor of the arb %/$ header
+    // that contains at least 2 book name elements. Works in all layouts.
+    const seen = new Set()
+    const rows = []
+    document.querySelectorAll('span.MuiTypography-navHeader').forEach(el => {
+      let node = el.parentElement
+      for (let i = 0; i < 12; i++) {
+        if (!node || node === document.body) break
+        if (node.querySelectorAll('div[aria-label]').length >= 2) {
+          if (!seen.has(node)) {
+            seen.add(node)
+            rows.push(node)
+          }
+          break
+        }
+        node = node.parentElement
+      }
+    })
+    return rows
+  }
+
   // ─── Row injection + MutationObserver ─────────────────────────────────────
 
   function injectAllRows() {
-    const rows = document.querySelectorAll('[rowtype="ARBITRAGE"]')
+    const rows = findArbRows()
     rows.forEach(injectButton)
   }
 
