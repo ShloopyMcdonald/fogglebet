@@ -67,12 +67,7 @@ console.log('[FoggleBet] content script loaded', window.location.href)
       // Leg href (sportsbook URL)
       const href = leg.getAttribute('href') ?? null
 
-      // Liquidity shown on main row for exchange books (span.MuiTypography-label containing $)
-      const liquidityEl = Array.from(leg.querySelectorAll('span.MuiTypography-label'))
-        .find(el => el !== sideEl && el.textContent?.includes('$'))
-      const liquidity = parseDollarAmount(liquidityEl?.textContent?.trim() ?? null)
-
-      legData.push({ book, sideLabel, href, liquidity })
+      legData.push({ book, sideLabel, href })
     }
 
     // Leg odds — spans are siblings to the <a> tags, not inside them
@@ -459,6 +454,12 @@ console.log('[FoggleBet] content script loaded', window.location.href)
             .filter(Boolean)
         )
 
+        // Pull liquidity for this leg from book_odds (expanded table) — same source as odds
+        const legBookSides = fullOdds[leg.book] ?? {}
+        const legSideKey = Object.keys(legBookSides)[i]
+        const liquidityStr = legSideKey ? (legBookSides[legSideKey]?.liquidity ?? null) : null
+        const liquidity = parseDollarAmount(liquidityStr)
+
         return {
         arb_id,
         is_taken: i === takenIndex,
@@ -469,7 +470,7 @@ console.log('[FoggleBet] content script loaded', window.location.href)
         line: leg.side_label ?? null,
         book: leg.book ?? 'Unknown',
         odds: leg.odds ?? 0,
-        liquidity: leg.liquidity ?? null,
+        liquidity,
         ev_percent: null,
         arb_percent: arbData.arb_percent,
         book_odds: Object.keys(legBookOdds).length > 0 ? legBookOdds : null,
