@@ -14,6 +14,7 @@ interface BetPayload {
   liquidity: number | null
   ev_percent: number | null
   arb_percent: number | null
+  book_odds?: Record<string, unknown> | null
   stake?: number
   source_url: string | null
   notes?: string | null
@@ -63,6 +64,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Both bets must share the same arb_id' }, { status: 400 })
   }
 
+  console.log('book_odds received:', JSON.stringify(betA.book_odds))
+
   const rows = [betA, betB].map((b) => ({
     arb_id: b.arb_id,
     is_taken: b.is_taken,
@@ -77,6 +80,7 @@ export async function POST(req: NextRequest) {
     ev_percent: b.ev_percent ?? null,
     arb_percent: b.arb_percent ?? null,
     stake: b.stake ?? 1,
+    book_odds: b.book_odds ?? null,
     source_url: b.source_url ?? null,
     notes: b.notes ?? null,
   }))
