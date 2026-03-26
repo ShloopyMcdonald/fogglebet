@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "FoggleBet",
+  "version": "1.0.0",
+  "description": "Log arb bets from picktheodds.com to your FoggleBet dashboard",
+  "permissions": [
+    "storage",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "https://picktheodds.com/*",
+    "http://localhost:3000/*",
+    "https://*.vercel.app/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://picktheodds.com/*"],
+      "js": ["content/index.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {
+    "service_worker": "background/index.js"
+  },
+  "action": {
+    "default_popup": "popup/index.html",
+    "default_title": "FoggleBet"
+  }
+}
