@@ -199,7 +199,7 @@ console.log('[FoggleBet] content script loaded', window.location.href)
         if (!oddsCell) continue
 
         const oddsSpans = Array.from(oddsCell.querySelectorAll('span.MuiTypography-oddsRobotoMono'))
-        const amountEls = Array.from(oddsCell.querySelectorAll('span.MuiTypography-label'))
+        const amountEls = Array.from(oddsCell.querySelectorAll('span[class=""]'))
           .filter(el => el.textContent?.includes('$'))
 
         // Derive side labels from cells[0] direct children (e.g. "Over 2.5", "Under 2.5").
