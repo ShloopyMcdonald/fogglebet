@@ -431,20 +431,34 @@ console.log('[FoggleBet] content script loaded', window.location.href)
       return
     }
 
+    // Scrape book odds before showing the modal so leg odds/liquidity come from
+    // the same expanded table source that already works — not from main-row spans.
+    const takenBooks = arbData.legs.map(l => l.book).filter(Boolean)
+    const sideLabels = arbData.legs.map((l, i) => l.side_label ?? `side_${i}`)
+    arbData.book_odds = scrapeBookOdds(row, takenBooks, sideLabels)
+    console.log('[FoggleBet] book_odds:', JSON.stringify(arbData.book_odds))
+
+    // Enrich each leg with odds and liquidity from book_odds[leg.book][side_i]
+    arbData.legs = arbData.legs.map((leg, i) => {
+      const bookSides = arbData.book_odds[leg.book] ?? {}
+      const sideKey = Object.keys(bookSides)[i]
+      const sideData = sideKey ? bookSides[sideKey] : null
+      return {
+        ...leg,
+        odds: sideData?.odds ?? leg.odds,
+        liquidity: parseDollarAmount(sideData?.liquidity ?? null),
+      }
+    })
+
     showSidePicker(arbData, async (takenIndex) => {
       setButtonState(btn, 'loading')
-
-      const takenBooks = arbData.legs.map(l => l.book).filter(Boolean)
-      const sideLabels = arbData.legs.map((l, i) => l.side_label ?? `side_${i}`)
-      arbData.book_odds = scrapeBookOdds(row, takenBooks, sideLabels)
-      console.log('[FoggleBet] book_odds:', JSON.stringify(arbData.book_odds))
 
       const arb_id = crypto.randomUUID()
       const source_url = window.location.href
 
       const payload = arbData.legs.map((leg, i) => {
         const fullOdds = arbData.book_odds ?? {}
-        // Pick the i-th side from each book by index (keys match DOM order, not leg labels)
+        // Pick the i-th side from each book by index (keys match DOM order)
         const legBookOdds = Object.fromEntries(
           Object.entries(fullOdds)
             .map(([book, sides]) => {
@@ -453,12 +467,6 @@ console.log('[FoggleBet] content script loaded', window.location.href)
             })
             .filter(Boolean)
         )
-
-        // Pull liquidity for this leg from book_odds (expanded table) — same source as odds
-        const legBookSides = fullOdds[leg.book] ?? {}
-        const legSideKey = Object.keys(legBookSides)[i]
-        const liquidityStr = legSideKey ? (legBookSides[legSideKey]?.liquidity ?? null) : null
-        const liquidity = parseDollarAmount(liquidityStr)
 
         return {
         arb_id,
@@ -470,7 +478,7 @@ console.log('[FoggleBet] content script loaded', window.location.href)
         line: leg.side_label ?? null,
         book: leg.book ?? 'Unknown',
         odds: leg.odds ?? 0,
-        liquidity,
+        liquidity: leg.liquidity ?? null,
         ev_percent: null,
         arb_percent: arbData.arb_percent,
         book_odds: Object.keys(legBookOdds).length > 0 ? legBookOdds : null,
