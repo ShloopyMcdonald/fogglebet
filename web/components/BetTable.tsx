@@ -75,6 +75,26 @@ function TakenBadge({ is_taken }: { is_taken: boolean }) {
   )
 }
 
+function BookLabel({ book }: { book: string }) {
+  const lower = book.toLowerCase()
+  let cls = 'text-xs font-medium'
+  let outlined = false
+
+  if (lower.includes('prophetx'))       cls += ' text-emerald-500'
+  else if (lower.includes('bovada'))    cls += ' text-rose-600'
+  else if (lower.includes('bookmaker')) cls += ' text-amber-300'
+  else if (lower.includes('fliff'))     cls += ' text-blue-400'
+  else if (lower.includes('novig'))     cls += ' text-sky-300'
+  else if (lower.includes('polymarket'))cls += ' text-blue-300'
+  else if (lower.includes('pinnacle'))  cls += ' text-zinc-200'
+  else if (lower.includes('bet105') || lower.includes('circa')) { cls += ' text-zinc-100'; outlined = true }
+  else cls += ' text-zinc-400'
+
+  if (outlined) cls += ' ring-1 ring-white/30 rounded px-1 py-0.5 inline-block'
+
+  return <span className={cls}>{book}</span>
+}
+
 function ChevronIcon({ open }: { open: boolean }) {
   return (
     <svg
@@ -154,10 +174,14 @@ export function BetTable({ bets }: { bets: Bet[] }) {
               className="flex items-center gap-3 px-4 py-2.5 hover:bg-white/[0.03] cursor-pointer border-b border-white/5 transition-colors"
               onClick={() => toggle(bet.id)}
             >
-              {/* Bet name + book */}
-              <div className="flex-1 min-w-0 flex items-baseline gap-2 overflow-hidden">
-                <span className="text-white font-medium text-sm uppercase truncate">{formatBetTitle(bet)}</span>
-                <span className="text-zinc-500 text-xs whitespace-nowrap shrink-0">{bet.book}</span>
+              {/* Bet title */}
+              <div className="flex-1 min-w-0 text-white font-medium text-sm uppercase truncate">
+                {formatBetTitle(bet)}
+              </div>
+
+              {/* Book name — centered between title and time */}
+              <div className="hidden sm:flex justify-center w-28 shrink-0">
+                <BookLabel book={bet.book} />
               </div>
 
               {/* Game time */}
@@ -172,6 +196,16 @@ export function BetTable({ bets }: { bets: Bet[] }) {
 
               <TakenBadge is_taken={bet.is_taken} />
               <ResultBadge result={bet.result} />
+
+              {/* Delete */}
+              <button
+                onClick={(e) => { e.stopPropagation(); handleDelete(bet.arb_id) }}
+                className="text-zinc-600 hover:text-red-400 transition-colors text-sm px-1 shrink-0"
+                title="Delete arb"
+              >
+                ✕
+              </button>
+
               <ChevronIcon open={isOpen} />
             </div>
 
@@ -201,14 +235,6 @@ export function BetTable({ bets }: { bets: Bet[] }) {
                     )}
                     <div>Book: <span className="text-zinc-300">{bet.book}</span></div>
                   </div>
-                  {isNewArb && (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleDelete(bet.arb_id) }}
-                      className="text-xs text-zinc-500 hover:text-red-400 transition-colors px-2 py-1 text-left"
-                    >
-                      Delete
-                    </button>
-                  )}
                 </div>
               </div>
             )}
