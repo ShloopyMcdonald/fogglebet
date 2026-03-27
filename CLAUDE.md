@@ -56,7 +56,7 @@ fogglebet/
 - No `any` types in TypeScript
 
 ### Extension
-- Target host: `https://picktheodds.com/*`
+- Target host: `https://picktheodds.app/*` (also `picktheodds.com` for legacy)
 - DOM scraping must be resilient — picktheodds may update markup; use stable selectors and log warnings when selectors fail
 - Never block the main thread in content scripts
 - All data sent to the web app via authenticated POST — never write to Supabase directly from the extension
