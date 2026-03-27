@@ -27,6 +27,7 @@ export interface Bet {
   result: BetResult
   profit_loss: number | null
   stake: number
+  book_odds: Record<string, unknown> | null
   source_url: string | null
   notes: string | null
 }
