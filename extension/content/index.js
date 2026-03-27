@@ -196,36 +196,28 @@ console.log('[FoggleBet] content script loaded', window.location.href)
 
       const sides = {}
 
-      for (const dataRow of dataRows) {
+      dataRows.forEach((dataRow, rowIdx) => {
         const oddsCell = dataRow.cells[colIndex]
-        if (!oddsCell) continue
+        if (!oddsCell) return
 
         const oddsSpans = Array.from(oddsCell.querySelectorAll('span.MuiTypography-oddsRobotoMono'))
         const amountEls = Array.from(oddsCell.querySelectorAll('span[class=""]'))
           .filter(el => el.textContent?.trim().startsWith('$'))
 
-        // Derive side labels from cells[0] direct children (e.g. "Over 2.5", "Under 2.5").
-        // Fall back to passed-in leg labels, then index-based.
-        const sideCell = dataRow.cells[0]
-        const domSideLabels = sideCell
-          ? Array.from(sideCell.children).map(el => el.textContent?.trim()).filter(Boolean)
-          : []
-        const effectiveSideLabels = domSideLabels.length === oddsSpans.length
-          ? domSideLabels
-          : (sideLabels ?? [])
-
-        oddsSpans.forEach((span, i) => {
-          const sideKey = effectiveSideLabels[i] ?? `side_${i}`
+        oddsSpans.forEach((span, spanIdx) => {
+          // 1 span per row = one side per row, use rowIdx; multiple spans = use spanIdx
+          const sideIdx = oddsSpans.length === 1 ? rowIdx : spanIdx
+          const sideKey = sideLabels[sideIdx] ?? `side_${sideIdx}`
           const oddsText = span.textContent?.trim()
           const odds = oddsText ? parseInt(oddsText.replace('+', ''), 10) : null
           const entry = { odds }
 
-          const liquidity = parseDollarAmount(amountEls[i]?.textContent?.trim() ?? null)
+          const liquidity = parseDollarAmount(amountEls[spanIdx]?.textContent?.trim() ?? null)
           if (liquidity !== null) entry.liquidity = liquidity
 
           sides[sideKey] = entry
         })
-      }
+      })
 
       if (Object.keys(sides).length > 0) result[bookName] = sides
     }
@@ -442,8 +434,7 @@ console.log('[FoggleBet] content script loaded', window.location.href)
     // Enrich each leg's odds from book_odds so the modal shows correct values
     arbData.legs = arbData.legs.map((leg, i) => {
       const bookSides = arbData.book_odds[leg.book] ?? {}
-      const sideKey = Object.keys(bookSides)[i]
-      const sideData = sideKey ? bookSides[sideKey] : null
+      const sideData = bookSides[leg.side_label] ?? bookSides[Object.keys(bookSides)[i]] ?? null
       return {
         ...leg,
         odds: sideData?.odds ?? leg.odds,
