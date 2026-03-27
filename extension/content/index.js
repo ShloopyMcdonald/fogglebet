@@ -59,7 +59,10 @@ console.log('[FoggleBet] content script loaded', window.location.href)
       // Leg href (sportsbook URL)
       const href = leg.getAttribute('href') ?? null
 
-      legData.push({ book, sideLabel, href })
+      // img[alt] is the abbreviated book name used as the colMap key in the expanded table
+      const bookImgAlt = leg.querySelector('img')?.getAttribute('alt')?.trim() ?? null
+
+      legData.push({ book, bookImgAlt, sideLabel, href })
     }
 
     // Leg odds — spans are siblings to the <a> tags, not inside them
@@ -133,7 +136,7 @@ console.log('[FoggleBet] content script loaded', window.location.href)
     return row.querySelectorAll('span.MuiTypography-oddsRobotoMono').length > 2
   }
 
-  function scrapeBookOdds(row, takenBooks, sideLabels) {
+  function scrapeBookOdds(row, takenBooks, sideLabels, bookAltMap = {}) {
     const booksToCapture = [...TARGET_BOOKS]
     for (const b of takenBooks) {
       if (b && !booksToCapture.includes(b)) booksToCapture.push(b)
@@ -165,11 +168,11 @@ console.log('[FoggleBet] content script loaded', window.location.href)
     // Try div[aria-label], then img[alt], then img[title]
     const colMap = {}
     Array.from(headerRow.cells).forEach((cell, i) => {
-      const name =
+      const raw =
         cell.querySelector('div[aria-label]')?.getAttribute('aria-label')?.trim() ||
         cell.querySelector('img')?.getAttribute('alt')?.trim() ||
         cell.querySelector('img')?.getAttribute('title')?.trim()
-      if (name) colMap[name] = i
+      if (raw) colMap[bookAltMap[raw] ?? raw] = i
     })
     console.log('[FoggleBet] scrapeBookOdds — colMap:', colMap)
 
@@ -428,7 +431,10 @@ console.log('[FoggleBet] content script loaded', window.location.href)
 
       const takenBooks = arbData.legs.map(l => l.book).filter(Boolean)
       const sideLabels = arbData.legs.map((l, i) => l.side_label ?? `side_${i}`)
-      arbData.book_odds = scrapeBookOdds(row, takenBooks, sideLabels)
+      const bookAltMap = Object.fromEntries(
+        arbData.legs.filter(l => l.bookImgAlt && l.book).map(l => [l.bookImgAlt, l.book])
+      )
+      arbData.book_odds = scrapeBookOdds(row, takenBooks, sideLabels, bookAltMap)
       console.log('[FoggleBet] book_odds:', JSON.stringify(arbData.book_odds))
 
       const arb_id = crypto.randomUUID()
