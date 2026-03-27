@@ -189,31 +189,24 @@ console.log('[FoggleBet] content script loaded', window.location.href)
 
       const sides = {}
 
-      for (const dataRow of dataRows) {
+      dataRows.forEach((dataRow, rowIdx) => {
         const oddsCell = dataRow.cells[colIndex]
-        if (!oddsCell) continue
+        if (!oddsCell) return
 
         const oddsSpans = Array.from(oddsCell.querySelectorAll('span.MuiTypography-oddsRobotoMono'))
         const amountEls = Array.from(oddsCell.querySelectorAll('span.MuiTypography-label'))
           .filter(el => el.textContent?.includes('$'))
 
-        // Derive side labels from cells[0] direct children (e.g. "Over 2.5", "Under 2.5").
-        // Fall back to passed-in leg labels, then index-based.
-        const sideCell = dataRow.cells[0]
-        const domSideLabels = sideCell
-          ? Array.from(sideCell.children).map(el => el.textContent?.trim()).filter(Boolean)
-          : []
-        const effectiveSideLabels = domSideLabels.length === oddsSpans.length
-          ? domSideLabels
-          : (sideLabels ?? [])
-
-        oddsSpans.forEach((span, i) => {
-          const sideKey = effectiveSideLabels[i] ?? `side_${i}`
+        oddsSpans.forEach((span, spanIdx) => {
+          // 1 span per row means one side per row — use rowIdx to identify which side.
+          // Multiple spans in one row means both sides are in one cell — use spanIdx.
+          const sideIdx = oddsSpans.length === 1 ? rowIdx : spanIdx
+          const sideKey = sideLabels[sideIdx] ?? `side_${sideIdx}`
           const oddsText = span.textContent?.trim()
           const odds = oddsText ? parseInt(oddsText.replace('+', ''), 10) : null
           const entry = { odds }
 
-          const amountText = amountEls[i]?.textContent?.trim() ?? null
+          const amountText = amountEls[spanIdx]?.textContent?.trim() ?? null
           if (amountText) {
             if (EXCHANGE_BOOKS.has(bookName)) entry.liquidity = amountText
             else if (SHARP_BOOKS.has(bookName)) entry.limit = amountText
@@ -221,7 +214,7 @@ console.log('[FoggleBet] content script loaded', window.location.href)
 
           sides[sideKey] = entry
         })
-      }
+      })
 
       if (Object.keys(sides).length > 0) result[bookName] = sides
     }
