@@ -9,12 +9,13 @@
   ],
   "host_permissions": [
     "https://picktheodds.com/*",
+    "https://picktheodds.app/*",
     "http://localhost:3000/*",
     "https://*.vercel.app/*"
   ],
   "content_scripts": [
     {
-      "matches": ["https://picktheodds.com/*"],
+      "matches": ["https://picktheodds.com/*", "https://picktheodds.app/*"],
       "js": ["content/index.js"],
       "run_at": "document_idle"
     }
