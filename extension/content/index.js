@@ -451,6 +451,7 @@ console.log('[FoggleBet] content script loaded', window.location.href)
         const bookSides = fullOdds[leg.book] ?? {}
         const legSideKey = Object.keys(bookSides)[i]
         const odds = legSideKey ? (bookSides[legSideKey]?.odds ?? leg.odds) : leg.odds
+        console.log(`[FoggleBet] leg ${i} (${leg.book}): bookSides=${JSON.stringify(bookSides)} | legSideKey=${legSideKey} | odds=${odds} | leg.odds=${leg.odds}`)
 
         return {
         arb_id,
