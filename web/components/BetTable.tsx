@@ -81,19 +81,19 @@ const BOOK_OUTLINE: React.CSSProperties = {
 
 function BookLabel({ book }: { book: string }) {
   const lower = book.toLowerCase()
-  let color = 'text-zinc-400/50'
+  let color = 'text-zinc-400/70'
 
-  if (lower.includes('prophetx'))       color = 'text-emerald-400/50'
-  else if (lower.includes('bovada'))    color = 'text-rose-500/50'
-  else if (lower.includes('bookmaker')) color = 'text-amber-300/50'
-  else if (lower.includes('fliff'))     color = 'text-blue-400/50'
-  else if (lower.includes('novig'))     color = 'text-sky-300/50'
-  else if (lower.includes('polymarket'))color = 'text-blue-300/50'
-  else if (lower.includes('pinnacle'))  color = 'text-zinc-200/50'
-  else if (lower.includes('bet105'))    color = 'text-blue-400/50'
-  else if (lower.includes('circa'))     color = 'text-zinc-300/50'
+  if (lower.includes('prophetx'))       color = 'text-emerald-400/70'
+  else if (lower.includes('bovada'))    color = 'text-rose-500/70'
+  else if (lower.includes('bookmaker')) color = 'text-amber-300/70'
+  else if (lower.includes('fliff'))     color = 'text-blue-400/70'
+  else if (lower.includes('novig'))     color = 'text-sky-300/70'
+  else if (lower.includes('polymarket'))color = 'text-blue-300/70'
+  else if (lower.includes('pinnacle'))  color = 'text-zinc-200/70'
+  else if (lower.includes('bet105'))    color = 'text-blue-400/70'
+  else if (lower.includes('circa'))     color = 'text-zinc-300/70'
 
-  return <span className={`text-xs font-medium ${color}`} style={BOOK_OUTLINE}>{book}</span>
+  return <span className={`text-sm font-bold ${color}`} style={BOOK_OUTLINE}>{book}</span>
 }
 
 function ChevronIcon({ open }: { open: boolean }) {
@@ -175,14 +175,14 @@ export function BetTable({ bets }: { bets: Bet[] }) {
               className="flex items-center gap-3 px-4 py-2.5 hover:bg-white/[0.03] cursor-pointer border-b border-white/5 transition-colors"
               onClick={() => toggle(bet.id)}
             >
+              {/* Book name */}
+              <div className="hidden sm:block w-24 shrink-0">
+                <BookLabel book={bet.book} />
+              </div>
+
               {/* Bet title */}
               <div className="flex-1 min-w-0 text-white font-medium text-sm uppercase truncate">
                 {formatBetTitle(bet)}
-              </div>
-
-              {/* Book name — centered between title and time */}
-              <div className="hidden sm:flex justify-center w-28 shrink-0">
-                <BookLabel book={bet.book} />
               </div>
 
               {/* Game time */}
@@ -233,7 +233,6 @@ export function BetTable({ bets }: { bets: Bet[] }) {
                     {bet.profit_loss != null && (
                       <div>P&L: <span className={bet.profit_loss > 0 ? 'text-emerald-400' : 'text-red-400'}>{bet.profit_loss > 0 ? '+' : ''}{bet.profit_loss.toFixed(2)}u</span></div>
                     )}
-                    <div>Book: <span className="text-zinc-300">{bet.book}</span></div>
                   </div>
                 </div>
               </div>
