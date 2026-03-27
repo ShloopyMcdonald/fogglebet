@@ -96,6 +96,7 @@ export default async function BetFeed() {
                   <th className="text-right px-4 py-3 font-medium">Odds</th>
                   <th className="text-right px-4 py-3 font-medium">Arb%</th>
                   <th className="text-left px-4 py-3 font-medium">Book</th>
+                  <th className="text-right px-4 py-3 font-medium">Liq</th>
                   <th className="text-right px-4 py-3 font-medium">CLV</th>
                   <th className="text-center px-4 py-3 font-medium">Side</th>
                   <th className="text-center px-4 py-3 font-medium">Result</th>
@@ -136,6 +137,9 @@ export default async function BetFeed() {
                       </td>
                       <td className="px-4 py-3 text-zinc-300 whitespace-nowrap">
                         {bet.book}
+                      </td>
+                      <td className="px-4 py-3 text-right font-mono text-zinc-400 whitespace-nowrap">
+                        {bet.liquidity != null ? `$${bet.liquidity.toLocaleString()}` : '—'}
                       </td>
                       <td
                         className={`px-4 py-3 text-right font-mono font-medium whitespace-nowrap ${
