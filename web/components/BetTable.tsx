@@ -12,30 +12,36 @@ function formatOdds(odds: number | null): string {
   return odds > 0 ? `+${odds}` : `${odds}`
 }
 
+function toTitleCase(s: string): string {
+  return s.replace(/\b[a-z]/g, c => c.toUpperCase())
+}
+
 function formatBetTitle(bet: { market: string | null; line: string | null; bet_name: string }): string {
   const market = bet.market?.trim()
   const line = bet.line?.trim()
 
   if (market) {
-    // Market format from PickTheOdds: "PropType - LastName, FirstInitial"
-    // e.g. "Points - Doncic, L" → "L. Doncic under 33.5 points"
     const dashIdx = market.indexOf(' - ')
     if (dashIdx !== -1) {
-      const propType = market.slice(0, dashIdx).toLowerCase()
+      // Player prop: "Points - Doncic, L" + line "Under 33.5" → "L. Doncic Under 33.5 Points"
+      const propType = market.slice(0, dashIdx)
       const playerPart = market.slice(dashIdx + 3)
       const commaIdx = playerPart.indexOf(', ')
       if (commaIdx !== -1) {
         const lastName = playerPart.slice(0, commaIdx)
         const firstInitial = playerPart.slice(commaIdx + 2)[0]?.toUpperCase()
         if (firstInitial) {
-          const lineStr = line ? ` ${line.toLowerCase()}` : ''
-          return `${firstInitial}. ${lastName}${lineStr} ${propType}`
+          const lineStr = line ? ` ${line}` : ''
+          return toTitleCase(`${firstInitial}. ${lastName}${lineStr} ${propType}`.toLowerCase())
         }
       }
+    } else if (line) {
+      // Spread / moneyline / total: side label already contains team + line, e.g. "Toronto Blue Jays +7.5"
+      return toTitleCase(line)
     }
   }
 
-  return bet.bet_name
+  return toTitleCase(bet.bet_name)
 }
 
 function formatGameTime(ts: string | null): string {
@@ -181,7 +187,7 @@ export function BetTable({ bets }: { bets: Bet[] }) {
               </div>
 
               {/* Bet title */}
-              <div className="flex-1 min-w-0 text-white font-medium text-sm uppercase truncate ml-3">
+              <div className="flex-1 min-w-0 text-white font-medium text-sm truncate ml-3">
                 {formatBetTitle(bet)}
               </div>
 
