@@ -56,13 +56,18 @@ console.log('[FoggleBet] content script loaded', window.location.href)
       const sideEl = leg.querySelector('span.MuiTypography-body3')
       const sideLabel = sideEl?.textContent?.trim() ?? null
 
+      // Spread line from sibling element (e.g. "+34.5", "-3"); null for moneylines
+      const lineEl = Array.from(sideEl?.parentElement?.children ?? [])
+        .find(el => el !== sideEl && /^[+-]\d/.test(el.textContent?.trim() ?? ''))
+      const sideLine = lineEl?.textContent?.trim() ?? null
+
       // Leg href (sportsbook URL)
       const href = leg.getAttribute('href') ?? null
 
       // img[alt] is the abbreviated book name used as the colMap key in the expanded table
       const bookImgAlt = leg.querySelector('img')?.getAttribute('alt')?.trim() ?? null
 
-      legData.push({ book, bookImgAlt, sideLabel, href })
+      legData.push({ book, bookImgAlt, sideLabel, sideLine, href })
     }
 
     // Leg odds — spans are siblings to the <a> tags, not inside them
@@ -90,6 +95,7 @@ console.log('[FoggleBet] content script loaded', window.location.href)
       legs: legData.map((leg, i) => ({
         book: leg.book,
         side_label: leg.sideLabel,
+        side_line: leg.sideLine,
         href: leg.href,
         odds: oddsValues[i] ?? null,
         wager: i === 0 ? parseFloat(wager0?.value ?? '0') || null : parseFloat(wager1?.value ?? '0') || null,
@@ -143,7 +149,7 @@ console.log('[FoggleBet] content script loaded', window.location.href)
     return row.querySelectorAll('span.MuiTypography-oddsRobotoMono').length > 2
   }
 
-  function scrapeBookOdds(row, takenBooks, sideLabels, bookAltMap = {}) {
+  function scrapeBookOdds(row, takenBooks, sideLabels, bookAltMap = {}, sideLines = []) {
     const booksToCapture = [...TARGET_BOOKS]
     for (const b of takenBooks) {
       if (b && !booksToCapture.includes(b)) booksToCapture.push(b)
@@ -187,6 +193,32 @@ console.log('[FoggleBet] content script loaded', window.location.href)
     const dataRows = Array.from(row.querySelectorAll('tr'))
       .filter(tr => !headerTable.contains(tr))
 
+    // For spread bets: reorder sideLabels to match table button order.
+    // Cell 0 buttons have aria-labels like "CHI+34.5" / "OKC-34.5" that encode
+    // which side is btn[0] vs btn[1]. Match those lines to sideLines from the legs.
+    let orderedSideLabels = sideLabels
+    if (sideLines.some(Boolean) && dataRows.length > 0) {
+      const cell0 = dataRows[0].cells[0]
+      if (cell0) {
+        // Cell 0 uses plain divs with aria-label (e.g. "CHI+32.5"), not div[role="button"]
+        const cell0Divs = Array.from(cell0.querySelectorAll('div[aria-label]'))
+          .filter(el => /[+-]\d/.test(el.getAttribute('aria-label') ?? ''))
+        const lineToLabel = {}
+        sideLines.forEach((line, i) => {
+          if (line && sideLabels[i]) lineToLabel[line] = sideLabels[i]
+        })
+        const reordered = cell0Divs.map(div => {
+          const ariaLabel = div.getAttribute('aria-label') ?? ''
+          const match = ariaLabel.match(/([+-]\d+(?:\.\d+)?)$/)
+          return match ? (lineToLabel[match[1]] ?? null) : null
+        })
+        if (cell0Divs.length >= 2 && reordered.every(l => l !== null)) {
+          orderedSideLabels = reordered
+          console.log('[FoggleBet] scrapeBookOdds — reordered sideLabels for spread:', orderedSideLabels)
+        }
+      }
+    }
+
     for (const bookName of booksToCapture) {
       const colIndex = colMap[bookName]
       if (colIndex === undefined) {
@@ -207,7 +239,7 @@ console.log('[FoggleBet] content script loaded', window.location.href)
           const oddsSpan = btn.querySelector('span.MuiTypography-oddsRobotoMono')
           if (!oddsSpan) return
 
-          const sideKey = sideLabels[sideIdx] ?? `side_${sideIdx}`
+          const sideKey = orderedSideLabels[sideIdx] ?? `side_${sideIdx}`
           const oddsText = oddsSpan.textContent?.trim()
           const odds = oddsText ? parseInt(oddsText.replace('+', ''), 10) : null
           const entry = { odds }
@@ -429,10 +461,11 @@ console.log('[FoggleBet] content script loaded', window.location.href)
     // Scrape book odds before showing the modal so the modal displays correct per-book odds
     const takenBooks = arbData.legs.map(l => l.book).filter(Boolean)
     const sideLabels = arbData.legs.map((l, i) => l.side_label ?? `side_${i}`)
+    const sideLines = arbData.legs.map(l => l.side_line ?? null)
     const bookAltMap = Object.fromEntries(
       arbData.legs.filter(l => l.bookImgAlt && l.book).map(l => [l.bookImgAlt, l.book])
     )
-    arbData.book_odds = scrapeBookOdds(row, takenBooks, sideLabels, bookAltMap)
+    arbData.book_odds = scrapeBookOdds(row, takenBooks, sideLabels, bookAltMap, sideLines)
     console.log('[FoggleBet] book_odds:', JSON.stringify(arbData.book_odds))
 
     // Enrich each leg's odds + liquidity from book_odds so the modal shows correct values
