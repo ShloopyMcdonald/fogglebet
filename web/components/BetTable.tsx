@@ -12,6 +12,27 @@ function formatOdds(odds: number | null): string {
   return odds > 0 ? `+${odds}` : `${odds}`
 }
 
+function formatBetTitle(bet: { market: string | null; line: string | null; bet_name: string }): string {
+  const market = bet.market?.trim()
+  const line = bet.line?.trim()
+
+  if (!market) return bet.bet_name
+
+  const words = market.split(/\s+/)
+
+  if (words.length >= 3) {
+    // e.g. "Luka Doncic Points" → "L. Doncic under 33.5 points"
+    const lastName = words.slice(1, -1).join(' ')
+    const propType = words[words.length - 1].toLowerCase()
+    const nameAbbrev = `${words[0][0].toUpperCase()}. ${lastName}`
+    const lineStr = line ? ` ${line.toLowerCase()}` : ''
+    return `${nameAbbrev}${lineStr} ${propType}`
+  }
+
+  if (line) return `${market} ${line}`
+  return bet.bet_name
+}
+
 function formatGameTime(ts: string | null): string {
   if (!ts) return '—'
   return new Date(ts).toLocaleDateString('en-US', {
@@ -74,7 +95,6 @@ function BookOddsTable({ bookOdds }: { bookOdds: BookOdds }) {
       <thead>
         <tr className="text-zinc-500 uppercase tracking-wide">
           <th className="text-left pb-1.5 font-medium">Book</th>
-          <th className="text-left pb-1.5 font-medium">Side</th>
           <th className="text-right pb-1.5 font-medium">Odds</th>
           <th className="text-right pb-1.5 font-medium">Liq</th>
         </tr>
@@ -83,7 +103,6 @@ function BookOddsTable({ bookOdds }: { bookOdds: BookOdds }) {
         {rows.map(({ book, side, odds, liquidity }) => (
           <tr key={book + side} className="border-t border-white/5">
             <td className="py-1 text-zinc-300">{book}</td>
-            <td className="py-1 text-zinc-500">{side}</td>
             <td className="py-1 text-right font-mono text-white">{formatOdds(odds)}</td>
             <td className="py-1 text-right font-mono text-zinc-400">
               {liquidity != null ? `$${liquidity.toLocaleString()}` : '—'}
@@ -122,7 +141,7 @@ export function BetTable({ bets }: { bets: Bet[] }) {
             >
               {/* Bet name */}
               <div className="flex-1 min-w-0 text-white font-medium text-sm truncate">
-                {bet.bet_name}
+                {formatBetTitle(bet)}
               </div>
 
               {/* Game time */}
