@@ -16,20 +16,25 @@ function formatBetTitle(bet: { market: string | null; line: string | null; bet_n
   const market = bet.market?.trim()
   const line = bet.line?.trim()
 
-  if (!market) return bet.bet_name
-
-  const words = market.split(/\s+/)
-
-  if (words.length >= 3) {
-    // e.g. "Luka Doncic Points" → "L. Doncic under 33.5 points"
-    const lastName = words.slice(1, -1).join(' ')
-    const propType = words[words.length - 1].toLowerCase()
-    const nameAbbrev = `${words[0][0].toUpperCase()}. ${lastName}`
-    const lineStr = line ? ` ${line.toLowerCase()}` : ''
-    return `${nameAbbrev}${lineStr} ${propType}`
+  if (market) {
+    // Market format from PickTheOdds: "PropType - LastName, FirstInitial"
+    // e.g. "Points - Doncic, L" → "L. Doncic under 33.5 points"
+    const dashIdx = market.indexOf(' - ')
+    if (dashIdx !== -1) {
+      const propType = market.slice(0, dashIdx).toLowerCase()
+      const playerPart = market.slice(dashIdx + 3)
+      const commaIdx = playerPart.indexOf(', ')
+      if (commaIdx !== -1) {
+        const lastName = playerPart.slice(0, commaIdx)
+        const firstInitial = playerPart.slice(commaIdx + 2)[0]?.toUpperCase()
+        if (firstInitial) {
+          const lineStr = line ? ` ${line.toLowerCase()}` : ''
+          return `${firstInitial}. ${lastName}${lineStr} ${propType}`
+        }
+      }
+    }
   }
 
-  if (line) return `${market} ${line}`
   return bet.bet_name
 }
 
