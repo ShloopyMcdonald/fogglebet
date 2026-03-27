@@ -426,16 +426,24 @@ console.log('[FoggleBet] content script loaded', window.location.href)
       return
     }
 
+    // Scrape book odds before showing the modal so the modal displays correct per-book odds
+    const takenBooks = arbData.legs.map(l => l.book).filter(Boolean)
+    const sideLabels = arbData.legs.map((l, i) => l.side_label ?? `side_${i}`)
+    const bookAltMap = Object.fromEntries(
+      arbData.legs.filter(l => l.bookImgAlt && l.book).map(l => [l.bookImgAlt, l.book])
+    )
+    arbData.book_odds = scrapeBookOdds(row, takenBooks, sideLabels, bookAltMap)
+    console.log('[FoggleBet] book_odds:', JSON.stringify(arbData.book_odds))
+
+    // Enrich each leg's odds from book_odds so the modal shows correct values
+    arbData.legs = arbData.legs.map((leg, i) => {
+      const bookSides = arbData.book_odds[leg.book] ?? {}
+      const sideKey = Object.keys(bookSides)[i]
+      return { ...leg, odds: sideKey ? (bookSides[sideKey]?.odds ?? leg.odds) : leg.odds }
+    })
+
     showSidePicker(arbData, async (takenIndex) => {
       setButtonState(btn, 'loading')
-
-      const takenBooks = arbData.legs.map(l => l.book).filter(Boolean)
-      const sideLabels = arbData.legs.map((l, i) => l.side_label ?? `side_${i}`)
-      const bookAltMap = Object.fromEntries(
-        arbData.legs.filter(l => l.bookImgAlt && l.book).map(l => [l.bookImgAlt, l.book])
-      )
-      arbData.book_odds = scrapeBookOdds(row, takenBooks, sideLabels, bookAltMap)
-      console.log('[FoggleBet] book_odds:', JSON.stringify(arbData.book_odds))
 
       const arb_id = crypto.randomUUID()
       const source_url = window.location.href
@@ -452,13 +460,6 @@ console.log('[FoggleBet] content script loaded', window.location.href)
             .filter(Boolean)
         )
 
-        // book_odds[leg.book][side_i] has the correct odds for this leg's book.
-        // scrapeRow's oddsSpans picks up the BEST column first, so leg.odds is wrong.
-        const bookSides = fullOdds[leg.book] ?? {}
-        const legSideKey = Object.keys(bookSides)[i]
-        const odds = legSideKey ? (bookSides[legSideKey]?.odds ?? leg.odds) : leg.odds
-        console.log(`[FoggleBet] leg ${i} (${leg.book}): bookSides=${JSON.stringify(bookSides)} | legSideKey=${legSideKey} | odds=${odds} | leg.odds=${leg.odds}`)
-
         return {
         arb_id,
         is_taken: i === takenIndex,
@@ -468,7 +469,7 @@ console.log('[FoggleBet] content script loaded', window.location.href)
         market: arbData.market,
         line: leg.side_label ?? null,
         book: leg.book ?? 'Unknown',
-        odds: odds ?? 0,
+        odds: leg.odds ?? 0,
         liquidity: leg.liquidity ?? null,
         ev_percent: null,
         arb_percent: arbData.arb_percent,
