@@ -8,15 +8,6 @@ console.log('[FoggleBet] content script loaded', window.location.href)
 
   // ─── Scraping helpers ──────────────────────────────────────────────────────
 
-  function parseDollarAmount(text) {
-    if (!text) return null
-    const clean = text.replace('$', '').replace(/,/g, '').trim()
-    if (clean.endsWith('M')) return Math.round(parseFloat(clean) * 1_000_000)
-    if (clean.endsWith('k')) return Math.round(parseFloat(clean) * 1_000)
-    const n = parseFloat(clean)
-    return isNaN(n) ? null : n
-  }
-
   function scrapeRow(row) {
     const warn = (msg) => console.warn('[FoggleBet]', msg)
 
@@ -138,6 +129,8 @@ console.log('[FoggleBet] content script loaded', window.location.href)
   // ─── Book odds scraping ────────────────────────────────────────────────────
 
   const TARGET_BOOKS = ['NoVig', 'ProphetX', 'Polymarket (INT)', 'Pinnacle', 'Circa', 'FanDuel']
+  const EXCHANGE_BOOKS = new Set(['NoVig', 'ProphetX', 'Polymarket (INT)'])
+  const SHARP_BOOKS = new Set(['Pinnacle', 'Circa'])
 
   function isRowExpanded(row) {
     return row.querySelectorAll('span.MuiTypography-oddsRobotoMono').length > 2
@@ -196,28 +189,39 @@ console.log('[FoggleBet] content script loaded', window.location.href)
 
       const sides = {}
 
-      dataRows.forEach((dataRow, rowIdx) => {
+      for (const dataRow of dataRows) {
         const oddsCell = dataRow.cells[colIndex]
-        if (!oddsCell) return
+        if (!oddsCell) continue
 
         const oddsSpans = Array.from(oddsCell.querySelectorAll('span.MuiTypography-oddsRobotoMono'))
-        const amountEls = Array.from(oddsCell.querySelectorAll('span[class=""]'))
-          .filter(el => el.textContent?.trim().startsWith('$'))
+        const amountEls = Array.from(oddsCell.querySelectorAll('span.MuiTypography-label'))
+          .filter(el => el.textContent?.includes('$'))
 
-        oddsSpans.forEach((span, spanIdx) => {
-          // 1 span per row = one side per row, use rowIdx; multiple spans = use spanIdx
-          const sideIdx = oddsSpans.length === 1 ? rowIdx : spanIdx
-          const sideKey = sideLabels[sideIdx] ?? `side_${sideIdx}`
+        // Derive side labels from cells[0] direct children (e.g. "Over 2.5", "Under 2.5").
+        // Fall back to passed-in leg labels, then index-based.
+        const sideCell = dataRow.cells[0]
+        const domSideLabels = sideCell
+          ? Array.from(sideCell.children).map(el => el.textContent?.trim()).filter(Boolean)
+          : []
+        const effectiveSideLabels = domSideLabels.length === oddsSpans.length
+          ? domSideLabels
+          : (sideLabels ?? [])
+
+        oddsSpans.forEach((span, i) => {
+          const sideKey = effectiveSideLabels[i] ?? `side_${i}`
           const oddsText = span.textContent?.trim()
           const odds = oddsText ? parseInt(oddsText.replace('+', ''), 10) : null
           const entry = { odds }
 
-          const liquidity = parseDollarAmount(amountEls[spanIdx]?.textContent?.trim() ?? null)
-          if (liquidity !== null) entry.liquidity = liquidity
+          const amountText = amountEls[i]?.textContent?.trim() ?? null
+          if (amountText) {
+            if (EXCHANGE_BOOKS.has(bookName)) entry.liquidity = amountText
+            else if (SHARP_BOOKS.has(bookName)) entry.limit = amountText
+          }
 
           sides[sideKey] = entry
         })
-      })
+      }
 
       if (Object.keys(sides).length > 0) result[bookName] = sides
     }
@@ -434,12 +438,8 @@ console.log('[FoggleBet] content script loaded', window.location.href)
     // Enrich each leg's odds from book_odds so the modal shows correct values
     arbData.legs = arbData.legs.map((leg, i) => {
       const bookSides = arbData.book_odds[leg.book] ?? {}
-      const sideData = bookSides[leg.side_label] ?? bookSides[Object.keys(bookSides)[i]] ?? null
-      return {
-        ...leg,
-        odds: sideData?.odds ?? leg.odds,
-        liquidity: sideData?.liquidity ?? null,
-      }
+      const sideKey = Object.keys(bookSides)[i]
+      return { ...leg, odds: sideKey ? (bookSides[sideKey]?.odds ?? leg.odds) : leg.odds }
     })
 
     showSidePicker(arbData, async (takenIndex) => {
