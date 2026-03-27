@@ -129,8 +129,15 @@ console.log('[FoggleBet] content script loaded', window.location.href)
   // ─── Book odds scraping ────────────────────────────────────────────────────
 
   const TARGET_BOOKS = ['NoVig', 'ProphetX', 'Polymarket (INT)', 'Pinnacle', 'Circa', 'FanDuel']
-  const EXCHANGE_BOOKS = new Set(['NoVig', 'ProphetX', 'Polymarket (INT)'])
-  const SHARP_BOOKS = new Set(['Pinnacle', 'Circa'])
+
+  function parseDollarAmount(text) {
+    if (!text) return null
+    const clean = text.replace('$', '').replace(/,/g, '').trim()
+    if (clean.endsWith('M')) return Math.round(parseFloat(clean) * 1_000_000)
+    if (clean.endsWith('k')) return Math.round(parseFloat(clean) * 1_000)
+    const n = parseFloat(clean)
+    return isNaN(n) ? null : n
+  }
 
   function isRowExpanded(row) {
     return row.querySelectorAll('span.MuiTypography-oddsRobotoMono').length > 2
@@ -189,32 +196,32 @@ console.log('[FoggleBet] content script loaded', window.location.href)
 
       const sides = {}
 
-      dataRows.forEach((dataRow, rowIdx) => {
+      for (const dataRow of dataRows) {
         const oddsCell = dataRow.cells[colIndex]
-        if (!oddsCell) return
+        if (!oddsCell) continue
 
-        const oddsSpans = Array.from(oddsCell.querySelectorAll('span.MuiTypography-oddsRobotoMono'))
-        const amountEls = Array.from(oddsCell.querySelectorAll('span.MuiTypography-label'))
-          .filter(el => el.textContent?.includes('$'))
+        // Each cell has one div[role="button"] per side, in order (btn[0]=side0, btn[1]=side1).
+        // Buttons showing "-" have no odds span — skip them but preserve index for side mapping.
+        const sideButtons = Array.from(oddsCell.querySelectorAll('div[role="button"]'))
+        sideButtons.forEach((btn, sideIdx) => {
+          const oddsSpan = btn.querySelector('span.MuiTypography-oddsRobotoMono')
+          if (!oddsSpan) return
 
-        oddsSpans.forEach((span, spanIdx) => {
-          // 1 span per row means one side per row — use rowIdx to identify which side.
-          // Multiple spans in one row means both sides are in one cell — use spanIdx.
-          const sideIdx = oddsSpans.length === 1 ? rowIdx : spanIdx
           const sideKey = sideLabels[sideIdx] ?? `side_${sideIdx}`
-          const oddsText = span.textContent?.trim()
+          const oddsText = oddsSpan.textContent?.trim()
           const odds = oddsText ? parseInt(oddsText.replace('+', ''), 10) : null
           const entry = { odds }
 
-          const amountText = amountEls[spanIdx]?.textContent?.trim() ?? null
-          if (amountText) {
-            if (EXCHANGE_BOOKS.has(bookName)) entry.liquidity = amountText
-            else if (SHARP_BOOKS.has(bookName)) entry.limit = amountText
+          const liqSpan = Array.from(btn.querySelectorAll('span'))
+            .find(s => s !== oddsSpan && s.textContent.trim().startsWith('$'))
+          if (liqSpan) {
+            const liquidity = parseDollarAmount(liqSpan.textContent.trim())
+            if (liquidity !== null) entry.liquidity = liquidity
           }
 
           sides[sideKey] = entry
         })
-      })
+      }
 
       if (Object.keys(sides).length > 0) result[bookName] = sides
     }
@@ -428,11 +435,15 @@ console.log('[FoggleBet] content script loaded', window.location.href)
     arbData.book_odds = scrapeBookOdds(row, takenBooks, sideLabels, bookAltMap)
     console.log('[FoggleBet] book_odds:', JSON.stringify(arbData.book_odds))
 
-    // Enrich each leg's odds from book_odds so the modal shows correct values
+    // Enrich each leg's odds + liquidity from book_odds so the modal shows correct values
     arbData.legs = arbData.legs.map((leg, i) => {
       const bookSides = arbData.book_odds[leg.book] ?? {}
-      const sideKey = Object.keys(bookSides)[i]
-      return { ...leg, odds: sideKey ? (bookSides[sideKey]?.odds ?? leg.odds) : leg.odds }
+      const sideData = bookSides[leg.side_label] ?? bookSides[Object.keys(bookSides)[i]] ?? null
+      return {
+        ...leg,
+        odds: sideData?.odds ?? leg.odds,
+        liquidity: sideData?.liquidity ?? null,
+      }
     })
 
     showSidePicker(arbData, async (takenIndex) => {
@@ -443,12 +454,12 @@ console.log('[FoggleBet] content script loaded', window.location.href)
 
       const payload = arbData.legs.map((leg, i) => {
         const fullOdds = arbData.book_odds ?? {}
-        // Pick the i-th side from each book by index (keys match DOM order, not leg labels)
+        const legSideLabel = leg.side_label ?? `side_${i}`
         const legBookOdds = Object.fromEntries(
           Object.entries(fullOdds)
             .map(([book, sides]) => {
-              const sideKey = Object.keys(sides)[i]
-              return sideKey ? [book, { [sideKey]: sides[sideKey] }] : null
+              const sideData = sides[legSideLabel] ?? sides[Object.keys(sides)[i]] ?? null
+              return sideData ? [book, { [legSideLabel]: sideData }] : null
             })
             .filter(Boolean)
         )
