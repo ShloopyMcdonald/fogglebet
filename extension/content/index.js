@@ -52,8 +52,8 @@ console.log('[FoggleBet] content script loaded', window.location.href)
       const book = bookDiv?.getAttribute('aria-label')?.trim() ?? null
       if (!book) warn(`leg ${i}: book name not found`)
 
-      // Side + line from span.MuiTypography-label
-      const sideEl = leg.querySelector('span.MuiTypography-label')
+      // Side + line from span.MuiTypography-body3 (within the <a> tag)
+      const sideEl = leg.querySelector('span.MuiTypography-body3')
       const sideLabel = sideEl?.textContent?.trim() ?? null
 
       // Leg href (sportsbook URL)

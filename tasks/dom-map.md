@@ -1,10 +1,12 @@
 # picktheodds DOM Scraping Map
 
 ## Row Selector
-```
-[rowtype="ARBITRAGE"]
-```
-One element per arb. This is the most stable selector on the page.
+Content-based detection (works in both narrow and wide layouts):
+- Find all `span.MuiTypography-navHeader` elements
+- Walk up the DOM tree to find the nearest ancestor containing `div[aria-label]` × 2+
+- That ancestor is the arb row
+
+`[rowtype="ARBITRAGE"]` only exists in the narrow layout — do not rely on it.
 
 ---
 
@@ -19,7 +21,7 @@ One element per arb. This is the most stable selector on the page.
 | Arb profit $ | `span.MuiTypography-navHeader` (contains `$`) | `.textContent`, strip `$` |
 | Arb percent % | `span.MuiTypography-navHeader` (contains `%`) | `.textContent`, strip `%` |
 | Book name | `div[aria-label]` (img container within `<a>`) | `getAttribute('aria-label')` |
-| Side + line | `span.MuiTypography-label` (within leg `<a>`) | `.textContent` — e.g. "Over 6.5" |
+| Side + line | `span.MuiTypography-body3` (within leg `<a>`) | `.textContent` — e.g. "Over 6.5" |
 | Leg odds | `input[type="text"]` (two per row) | `.value` — e.g. "+171" |
 | Wager amounts | `input[type="number"][name="0"]`, `[name="1"]` | `.value` |
 | Expanded odds | `span.MuiTypography-oddsRobotoMono` | `.textContent` |
