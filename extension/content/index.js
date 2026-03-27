@@ -446,6 +446,12 @@ console.log('[FoggleBet] content script loaded', window.location.href)
             .filter(Boolean)
         )
 
+        // book_odds[leg.book][side_i] has the correct odds for this leg's book.
+        // scrapeRow's oddsSpans picks up the BEST column first, so leg.odds is wrong.
+        const bookSides = fullOdds[leg.book] ?? {}
+        const legSideKey = Object.keys(bookSides)[i]
+        const odds = legSideKey ? (bookSides[legSideKey]?.odds ?? leg.odds) : leg.odds
+
         return {
         arb_id,
         is_taken: i === takenIndex,
@@ -455,7 +461,7 @@ console.log('[FoggleBet] content script loaded', window.location.href)
         market: arbData.market,
         line: leg.side_label ?? null,
         book: leg.book ?? 'Unknown',
-        odds: leg.odds ?? 0,
+        odds: odds ?? 0,
         liquidity: leg.liquidity ?? null,
         ev_percent: null,
         arb_percent: arbData.arb_percent,
