@@ -75,24 +75,25 @@ function TakenBadge({ is_taken }: { is_taken: boolean }) {
   )
 }
 
+const BOOK_OUTLINE: React.CSSProperties = {
+  textShadow: '-1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000',
+}
+
 function BookLabel({ book }: { book: string }) {
   const lower = book.toLowerCase()
-  let cls = 'text-xs font-medium'
-  let outlined = false
+  let color = 'text-zinc-400/50'
 
-  if (lower.includes('prophetx'))       cls += ' text-emerald-500'
-  else if (lower.includes('bovada'))    cls += ' text-rose-600'
-  else if (lower.includes('bookmaker')) cls += ' text-amber-300'
-  else if (lower.includes('fliff'))     cls += ' text-blue-400'
-  else if (lower.includes('novig'))     cls += ' text-sky-300'
-  else if (lower.includes('polymarket'))cls += ' text-blue-300'
-  else if (lower.includes('pinnacle'))  cls += ' text-zinc-200'
-  else if (lower.includes('bet105') || lower.includes('circa')) { cls += ' text-zinc-100'; outlined = true }
-  else cls += ' text-zinc-400'
+  if (lower.includes('prophetx'))       color = 'text-emerald-400/50'
+  else if (lower.includes('bovada'))    color = 'text-rose-500/50'
+  else if (lower.includes('bookmaker')) color = 'text-amber-300/50'
+  else if (lower.includes('fliff'))     color = 'text-blue-400/50'
+  else if (lower.includes('novig'))     color = 'text-sky-300/50'
+  else if (lower.includes('polymarket'))color = 'text-blue-300/50'
+  else if (lower.includes('pinnacle'))  color = 'text-zinc-200/50'
+  else if (lower.includes('bet105'))    color = 'text-blue-400/50'
+  else if (lower.includes('circa'))     color = 'text-zinc-300/50'
 
-  if (outlined) cls += ' ring-1 ring-white/30 rounded px-1 py-0.5 inline-block'
-
-  return <span className={cls}>{book}</span>
+  return <span className={`text-xs font-medium ${color}`} style={BOOK_OUTLINE}>{book}</span>
 }
 
 function ChevronIcon({ open }: { open: boolean }) {
@@ -190,12 +191,13 @@ export function BetTable({ bets }: { bets: Bet[] }) {
               </div>
 
               {/* Odds */}
-              <div className="font-mono font-semibold text-sm text-white whitespace-nowrap w-14 text-right">
+              <div className="font-mono font-semibold text-sm text-white whitespace-nowrap w-14 text-center shrink-0">
                 {formatOdds(bet.odds)}
               </div>
 
-              <TakenBadge is_taken={bet.is_taken} />
               <ResultBadge result={bet.result} />
+
+              <ChevronIcon open={isOpen} />
 
               {/* Delete */}
               <button
@@ -205,8 +207,6 @@ export function BetTable({ bets }: { bets: Bet[] }) {
               >
                 ✕
               </button>
-
-              <ChevronIcon open={isOpen} />
             </div>
 
             {/* Expanded section */}
