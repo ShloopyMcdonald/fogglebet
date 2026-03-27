@@ -99,7 +99,7 @@ function BookLabel({ book }: { book: string }) {
 function ChevronIcon({ open }: { open: boolean }) {
   return (
     <svg
-      className={`w-4 h-4 text-zinc-500 transition-transform duration-150 ${open ? 'rotate-180' : ''}`}
+      className={`w-4 h-4 transition-transform duration-150 ${open ? 'rotate-180' : ''}`}
       fill="none"
       viewBox="0 0 24 24"
       stroke="currentColor"
@@ -181,7 +181,7 @@ export function BetTable({ bets }: { bets: Bet[] }) {
               </div>
 
               {/* Bet title */}
-              <div className="flex-1 min-w-0 text-white font-medium text-sm uppercase truncate">
+              <div className="flex-1 min-w-0 text-white font-medium text-sm uppercase truncate ml-3">
                 {formatBetTitle(bet)}
               </div>
 
@@ -197,7 +197,9 @@ export function BetTable({ bets }: { bets: Bet[] }) {
 
               <ResultBadge result={bet.result} />
 
-              <ChevronIcon open={isOpen} />
+              <span className="text-zinc-500 hover:text-emerald-600/80 transition-colors shrink-0">
+                <ChevronIcon open={isOpen} />
+              </span>
 
               {/* Delete */}
               <button
