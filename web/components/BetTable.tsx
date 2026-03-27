@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import type { Bet } from '@/lib/supabase'
-import { DeleteArbButton } from '@/components/DeleteArbButton'
+import { deleteArb } from '@/app/actions'
 
 type BookOddsEntry = { odds: number; liquidity?: number }
 type BookOdds = Record<string, Record<string, BookOddsEntry>>
@@ -121,6 +121,7 @@ function BookOddsTable({ bookOdds }: { bookOdds: BookOdds }) {
 
 export function BetTable({ bets }: { bets: Bet[] }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [deletedArbs, setDeletedArbs] = useState<Set<string>>(new Set())
 
   const toggle = (id: string) => {
     setExpanded(prev => {
@@ -131,11 +132,20 @@ export function BetTable({ bets }: { bets: Bet[] }) {
     })
   }
 
+  const handleDelete = (arbId: string) => {
+    setDeletedArbs(prev => new Set(prev).add(arbId))
+    deleteArb(arbId).catch(() => {
+      setDeletedArbs(prev => { const next = new Set(prev); next.delete(arbId); return next })
+    })
+  }
+
+  const visibleBets = bets.filter(b => !deletedArbs.has(b.arb_id))
+
   return (
     <div className="rounded-lg border border-white/5 overflow-hidden">
-      {bets.map((bet, i) => {
+      {visibleBets.map((bet, i) => {
         const isOpen = expanded.has(bet.id)
-        const isNewArb = i === 0 || bets[i - 1].arb_id !== bet.arb_id
+        const isNewArb = i === 0 || visibleBets[i - 1].arb_id !== bet.arb_id
 
         return (
           <div key={bet.id} className={isNewArb && i > 0 ? 'border-t border-white/10' : ''}>
@@ -144,9 +154,10 @@ export function BetTable({ bets }: { bets: Bet[] }) {
               className="flex items-center gap-3 px-4 py-2.5 hover:bg-white/[0.03] cursor-pointer border-b border-white/5 transition-colors"
               onClick={() => toggle(bet.id)}
             >
-              {/* Bet name */}
-              <div className="flex-1 min-w-0 text-white font-medium text-sm truncate">
-                {formatBetTitle(bet)}
+              {/* Bet name + book */}
+              <div className="flex-1 min-w-0 flex items-baseline gap-2 overflow-hidden">
+                <span className="text-white font-medium text-sm uppercase truncate">{formatBetTitle(bet)}</span>
+                <span className="text-zinc-500 text-xs whitespace-nowrap shrink-0">{bet.book}</span>
               </div>
 
               {/* Game time */}
@@ -190,7 +201,14 @@ export function BetTable({ bets }: { bets: Bet[] }) {
                     )}
                     <div>Book: <span className="text-zinc-300">{bet.book}</span></div>
                   </div>
-                  {isNewArb && <DeleteArbButton arbId={bet.arb_id} />}
+                  {isNewArb && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleDelete(bet.arb_id) }}
+                      className="text-xs text-zinc-500 hover:text-red-400 transition-colors px-2 py-1 text-left"
+                    >
+                      Delete
+                    </button>
+                  )}
                 </div>
               </div>
             )}
