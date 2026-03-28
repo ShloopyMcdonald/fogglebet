@@ -26,7 +26,7 @@ async function handlePostBets(payload) {
 
     if (!res.ok) {
       const text = await res.text()
-      return { ok: false, error: `Server error ${res.status}: ${text}` }
+      return { ok: false, duplicate: res.status === 409, error: `Server error ${res.status}: ${text}` }
     }
 
     return { ok: true }

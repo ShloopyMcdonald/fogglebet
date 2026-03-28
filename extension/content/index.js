@@ -329,15 +329,28 @@ console.log('[FoggleBet] content script loaded', window.location.href)
     if (state === 'loading') {
       btn.textContent = '...'
       btn.style.background = '#4b5563'
+      btn.style.borderColor = 'rgba(255,255,255,0.15)'
+      btn.style.boxShadow = 'none'
       btn.disabled = true
     } else if (state === 'success') {
       btn.textContent = '✓ Logged'
       btn.style.background = '#16a34a'
+      btn.style.borderColor = 'rgba(255,255,255,0.2)'
+      btn.style.boxShadow = '0 2px 8px rgba(22,163,74,0.35)'
       btn.disabled = false
       setTimeout(() => resetButton(btn), 3000)
     } else if (state === 'error') {
       btn.textContent = '✗ Error'
-      btn.style.background = '#dc2626'
+      btn.style.background = 'linear-gradient(135deg, #1f0a0a 0%, #5c0f0f 100%)'
+      btn.style.borderColor = '#ef4444'
+      btn.style.boxShadow = '0 2px 8px rgba(239,68,68,0.35)'
+      btn.disabled = false
+      setTimeout(() => resetButton(btn), 4000)
+    } else if (state === 'duplicate') {
+      btn.textContent = 'Already Logged'
+      btn.style.background = 'linear-gradient(135deg, #1a1000 0%, #5c3800 100%)'
+      btn.style.borderColor = '#f59e0b'
+      btn.style.boxShadow = '0 2px 8px rgba(245,158,11,0.35)'
       btn.disabled = false
       setTimeout(() => resetButton(btn), 4000)
     }
@@ -346,6 +359,8 @@ console.log('[FoggleBet] content script loaded', window.location.href)
   function resetButton(btn) {
     btn.textContent = 'Log Bet'
     btn.style.background = 'linear-gradient(135deg, #060e2b 0%, #0f1f5c 100%)'
+    btn.style.borderColor = 'rgba(255,255,255,0.2)'
+    btn.style.boxShadow = '0 2px 8px rgba(37,99,235,0.35)'
     btn.disabled = false
   }
 
@@ -546,6 +561,59 @@ console.log('[FoggleBet] content script loaded', window.location.href)
     document.body.appendChild(overlay)
   }
 
+  // ─── Cell 0 spread extractor ─────────────────────────────────────────────
+  // Fallback for spread bets where sideLine is null in the compact leg view
+  // (e.g. NCAAB). Cell 0 aria-labels like "ARI+6.5" encode team + spread.
+
+  function extractSpreadsFromCell0(row, sideLabels) {
+    const result = sideLabels.map(() => null)
+
+    // Find the header table (same heuristic as scrapeBookOdds)
+    const tables = Array.from(row.querySelectorAll('table'))
+    let headerTable = null
+    for (const table of tables) {
+      const firstRow = table.querySelector('tr')
+      if (firstRow && firstRow.querySelectorAll('div[aria-label]').length > 1) {
+        headerTable = table
+        break
+      }
+    }
+    if (!headerTable) return result
+
+    const dataRows = Array.from(row.querySelectorAll('tr'))
+      .filter(tr => !headerTable.contains(tr))
+    if (dataRows.length === 0) return result
+
+    const cell0 = dataRows[0].cells[0]
+    if (!cell0) return result
+
+    // Plain divs in cell 0 have aria-labels like "ARI+6.5" or "PUR-4.5"
+    const parsed = Array.from(cell0.querySelectorAll('div[aria-label]'))
+      .map(el => {
+        const raw = el.getAttribute('aria-label') ?? ''
+        const m = raw.match(/^([A-Za-z]+)([+-]\d+(?:\.\d+)?)$/)
+        return m ? { abbr: m[1].toLowerCase(), spread: m[2] } : null
+      })
+      .filter(Boolean)
+
+    if (parsed.length < 2) return result
+
+    // Match each sideLabel to a parsed entry by abbreviation prefix
+    // "ARI" → "Arizona" (arizona.startsWith("ari"))
+    // "PUR" → "Purdue"  (purdue.startsWith("pur"))
+    sideLabels.forEach((label, i) => {
+      const lNorm = label.toLowerCase()
+      for (const { abbr, spread } of parsed) {
+        if (lNorm.startsWith(abbr) || lNorm.split(/\s+/).some(w => w.startsWith(abbr))) {
+          result[i] = spread
+          break
+        }
+      }
+    })
+
+    return result
+  }
+
   // ─── Log click handler ────────────────────────────────────────────────────
 
   async function handleLogClick(row, btn) {
@@ -564,6 +632,23 @@ console.log('[FoggleBet] content script loaded', window.location.href)
     const bookAltMap = Object.fromEntries(
       arbData.legs.filter(l => l.bookImgAlt && l.book).map(l => [l.bookImgAlt, l.book])
     )
+
+    // Fallback: for spread bets where sideLine is absent in the compact leg view
+    // (e.g. NCAAB), extract spread from expanded table cell 0 aria-labels.
+    // Must happen before scrapeBookOdds so it can reorder sides correctly.
+    if (arbData.market?.toLowerCase().includes('spread') && !sideLines.some(Boolean)) {
+      const tableSpreads = extractSpreadsFromCell0(row, sideLabels)
+      if (tableSpreads.some(Boolean)) {
+        tableSpreads.forEach((spread, i) => {
+          if (spread) {
+            sideLines[i] = spread
+            arbData.legs[i].side_line = spread
+          }
+        })
+        console.log('[FoggleBet] extracted sideLines from cell0:', sideLines)
+      }
+    }
+
     arbData.book_odds = scrapeBookOdds(row, takenBooks, sideLabels, bookAltMap, sideLines)
     console.log('[FoggleBet] book_odds:', JSON.stringify(arbData.book_odds))
 
@@ -641,6 +726,8 @@ console.log('[FoggleBet] content script loaded', window.location.href)
       }
       if (response?.ok) {
         setButtonState(btn, 'success')
+      } else if (response?.duplicate) {
+        setButtonState(btn, 'duplicate')
       } else {
         console.error('[FoggleBet] API error:', response?.error)
         setButtonState(btn, 'error')
