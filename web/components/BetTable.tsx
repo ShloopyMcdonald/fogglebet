@@ -195,18 +195,16 @@ export function BetTable({ bets }: { bets: Bet[] }) {
               className="flex items-center gap-3 px-4 py-2.5 hover:bg-white/[0.03] cursor-pointer border-b border-white/5 transition-colors"
               onClick={() => toggle(bet.id)}
             >
-              {/* Bet type + League + Book name */}
-              <div className="hidden sm:flex flex-col items-start justify-center w-28 shrink-0">
-                <div className="flex items-center gap-1.5">
-                  <BetTypeLabel market={bet.market} />
-                  {bet.sport && <span className="text-xs text-zinc-500 uppercase tracking-wide">{bet.sport}</span>}
-                </div>
-                <BookLabel book={bet.book} />
+              {/* Bet type + League */}
+              <div className="hidden sm:flex flex-col items-start justify-center w-20 shrink-0">
+                <BetTypeLabel market={bet.market} />
+                {bet.sport && <span className="text-xs text-zinc-500 uppercase tracking-wide">{bet.sport}</span>}
               </div>
 
-              {/* Bet title */}
-              <div className="flex-1 min-w-0 text-white font-medium text-sm truncate ml-3">
-                {formatBetTitle(bet)}
+              {/* Bet title + Book name */}
+              <div className="flex-1 min-w-0 flex items-center gap-2 ml-3">
+                <span className="text-white font-medium text-sm truncate">{formatBetTitle(bet)}</span>
+                <BookLabel book={bet.book} />
               </div>
 
               {/* Game time */}
