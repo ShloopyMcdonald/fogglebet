@@ -65,23 +65,29 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Both bets must share the same arb_id' }, { status: 400 })
   }
 
-  // Duplicate check for training bets: same game + market + date cannot be logged twice
-  if (betA.is_training && betA.game_time && betA.market) {
+  // Duplicate check for training bets: same game + market cannot be logged twice
+  if (betA.is_training && betA.market) {
     const gamePrefix = betA.bet_name.split(' \u2014 ')[0]
-    const gameDate = betA.game_time.slice(0, 10)
-    const nextDate = new Date(`${gameDate}T00:00:00Z`)
-    nextDate.setUTCDate(nextDate.getUTCDate() + 1)
-    const nextDateStr = nextDate.toISOString().slice(0, 10)
 
-    const { data: existing } = await supabase
+    let query = supabase
       .from('bets')
       .select('id')
       .eq('is_training', true)
       .eq('market', betA.market)
       .ilike('bet_name', `${gamePrefix}%`)
-      .gte('game_time', `${gameDate}T00:00:00Z`)
-      .lt('game_time', `${nextDateStr}T00:00:00Z`)
-      .limit(1)
+
+    // If game_time is known, constrain to the same UTC day to allow same matchup on different dates
+    if (betA.game_time) {
+      const gameDate = betA.game_time.slice(0, 10)
+      const nextDate = new Date(`${gameDate}T00:00:00Z`)
+      nextDate.setUTCDate(nextDate.getUTCDate() + 1)
+      const nextDateStr = nextDate.toISOString().slice(0, 10)
+      query = query
+        .gte('game_time', `${gameDate}T00:00:00Z`)
+        .lt('game_time', `${nextDateStr}T00:00:00Z`)
+    }
+
+    const { data: existing } = await query.limit(1)
 
     if (existing && existing.length > 0) {
       return NextResponse.json(
