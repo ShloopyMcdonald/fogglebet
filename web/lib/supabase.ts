@@ -11,6 +11,7 @@ export interface Bet {
   id: string
   arb_id: string
   is_taken: boolean
+  is_training: boolean
   recorded_at: string
   game_time: string | null
   bet_name: string

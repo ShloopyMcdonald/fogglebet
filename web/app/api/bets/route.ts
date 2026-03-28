@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase'
 interface BetPayload {
   arb_id: string
   is_taken: boolean
+  is_training?: boolean
   game_time: string | null
   bet_name: string
   sport: string | null
@@ -69,6 +70,7 @@ export async function POST(req: NextRequest) {
   const rows = [betA, betB].map((b) => ({
     arb_id: b.arb_id,
     is_taken: b.is_taken,
+    is_training: b.is_training ?? false,
     game_time: b.game_time ?? null,
     bet_name: b.bet_name,
     sport: b.sport ?? null,

@@ -349,6 +349,105 @@ console.log('[FoggleBet] content script loaded', window.location.href)
     btn.disabled = false
   }
 
+  // ─── Purpose picker modal (taken vs training) ─────────────────────────────
+
+  function showPurposePicker(arbData, onPurpose) {
+    const overlay = document.createElement('div')
+    overlay.style.cssText = `
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.6);
+      z-index: 99999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    `
+
+    const modal = document.createElement('div')
+    modal.style.cssText = `
+      background: #1a1a2e;
+      border: 1px solid #2d2d4e;
+      border-radius: 8px;
+      padding: 20px 24px;
+      width: 340px;
+      font-family: system-ui, sans-serif;
+      color: #e5e5e5;
+    `
+
+    const title = document.createElement('h3')
+    title.textContent = 'How are you logging this?'
+    title.style.cssText = 'margin: 0 0 6px; font-size: 15px; color: #fff;'
+
+    const subtitle = document.createElement('p')
+    const market = arbData.market ?? ''
+    subtitle.textContent = market || (arbData.legs[0]?.bet_name?.split('—')[0]?.trim() ?? '')
+    subtitle.style.cssText = 'margin: 0 0 16px; font-size: 12px; color: #9ca3af;'
+
+    const btnRow = document.createElement('div')
+    btnRow.style.cssText = 'display: flex; gap: 10px;'
+
+    const choices = [
+      { label: 'Taking this bet', sub: 'Pick which side you\'re on', value: 'taken', color: '#2563eb' },
+      { label: 'Log for training', sub: 'Record both sides for the model', value: 'training', color: '#059669' },
+    ]
+
+    choices.forEach(({ label, sub, value, color }) => {
+      const btn = document.createElement('button')
+      btn.style.cssText = `
+        flex: 1;
+        background: #0f172a;
+        border: 1px solid #334155;
+        border-radius: 6px;
+        padding: 12px 8px;
+        cursor: pointer;
+        color: #e5e5e5;
+        font-family: system-ui, sans-serif;
+        text-align: left;
+      `
+
+      const labelEl = document.createElement('div')
+      labelEl.textContent = label
+      labelEl.style.cssText = 'font-size: 13px; font-weight: 600; margin-bottom: 4px;'
+
+      const subEl = document.createElement('div')
+      subEl.textContent = sub
+      subEl.style.cssText = 'font-size: 11px; color: #9ca3af; line-height: 1.4;'
+
+      btn.appendChild(labelEl)
+      btn.appendChild(subEl)
+
+      btn.addEventListener('mouseenter', () => { btn.style.borderColor = color })
+      btn.addEventListener('mouseleave', () => { btn.style.borderColor = '#334155' })
+      btn.addEventListener('click', () => {
+        document.body.removeChild(overlay)
+        onPurpose(value)
+      })
+
+      btnRow.appendChild(btn)
+    })
+
+    const cancelBtn = document.createElement('button')
+    cancelBtn.textContent = 'Cancel'
+    cancelBtn.style.cssText = `
+      margin-top: 12px;
+      background: none;
+      border: none;
+      color: #6b7280;
+      font-size: 12px;
+      cursor: pointer;
+      width: 100%;
+      font-family: system-ui, sans-serif;
+    `
+    cancelBtn.addEventListener('click', () => { document.body.removeChild(overlay) })
+
+    modal.appendChild(title)
+    modal.appendChild(subtitle)
+    modal.appendChild(btnRow)
+    modal.appendChild(cancelBtn)
+    overlay.appendChild(modal)
+    document.body.appendChild(overlay)
+  }
+
   // ─── Side-picker modal ────────────────────────────────────────────────────
 
   function showSidePicker(arbData, onSelect) {
@@ -458,7 +557,7 @@ console.log('[FoggleBet] content script loaded', window.location.href)
       return
     }
 
-    // Scrape book odds before showing the modal so the modal displays correct per-book odds
+    // Scrape book odds before showing any modal
     const takenBooks = arbData.legs.map(l => l.book).filter(Boolean)
     const sideLabels = arbData.legs.map((l, i) => l.side_label ?? `side_${i}`)
     const sideLines = arbData.legs.map(l => l.side_line ?? null)
@@ -468,7 +567,7 @@ console.log('[FoggleBet] content script loaded', window.location.href)
     arbData.book_odds = scrapeBookOdds(row, takenBooks, sideLabels, bookAltMap, sideLines)
     console.log('[FoggleBet] book_odds:', JSON.stringify(arbData.book_odds))
 
-    // Enrich each leg's odds + liquidity from book_odds so the modal shows correct values
+    // Enrich each leg's odds + liquidity from book_odds
     arbData.legs = arbData.legs.map((leg, i) => {
       const bookSides = arbData.book_odds[leg.book] ?? {}
       const sideData = bookSides[leg.side_label] ?? bookSides[Object.keys(bookSides)[i]] ?? null
@@ -479,27 +578,41 @@ console.log('[FoggleBet] content script loaded', window.location.href)
       }
     })
 
-    showSidePicker(arbData, async (takenIndex) => {
-      setButtonState(btn, 'loading')
+    // Step 1: ask taken vs training
+    showPurposePicker(arbData, (purpose) => {
+      if (purpose === 'training') {
+        postBets(btn, arbData, /* takenIndex */ null, /* isTraining */ true)
+      } else {
+        // Step 2: pick which side
+        showSidePicker(arbData, (takenIndex) => {
+          postBets(btn, arbData, takenIndex, /* isTraining */ false)
+        })
+      }
+    })
+  }
 
-      const arb_id = crypto.randomUUID()
-      const source_url = window.location.href
+  function postBets(btn, arbData, takenIndex, isTraining) {
+    setButtonState(btn, 'loading')
 
-      const payload = arbData.legs.map((leg, i) => {
-        const fullOdds = arbData.book_odds ?? {}
-        const legSideLabel = leg.side_label ?? `side_${i}`
-        const legBookOdds = Object.fromEntries(
-          Object.entries(fullOdds)
-            .map(([book, sides]) => {
-              const sideData = sides[legSideLabel] ?? sides[Object.keys(sides)[i]] ?? null
-              return sideData ? [book, { [legSideLabel]: sideData }] : null
-            })
-            .filter(Boolean)
-        )
+    const arb_id = crypto.randomUUID()
+    const source_url = window.location.href
 
-        return {
+    const payload = arbData.legs.map((leg, i) => {
+      const fullOdds = arbData.book_odds ?? {}
+      const legSideLabel = leg.side_label ?? `side_${i}`
+      const legBookOdds = Object.fromEntries(
+        Object.entries(fullOdds)
+          .map(([book, sides]) => {
+            const sideData = sides[legSideLabel] ?? sides[Object.keys(sides)[i]] ?? null
+            return sideData ? [book, { [legSideLabel]: sideData }] : null
+          })
+          .filter(Boolean)
+      )
+
+      return {
         arb_id,
-        is_taken: i === takenIndex,
+        is_taken: takenIndex !== null ? i === takenIndex : false,
+        is_training: isTraining,
         game_time: arbData.game_time,
         bet_name: leg.bet_name,
         sport: arbData.sport,
@@ -513,22 +626,21 @@ console.log('[FoggleBet] content script loaded', window.location.href)
         book_odds: Object.keys(legBookOdds).length > 0 ? legBookOdds : null,
         stake: 1,
         source_url,
-        }
-      })
+      }
+    })
 
-      chrome.runtime.sendMessage({ type: 'POST_BETS', payload }, (response) => {
-        if (chrome.runtime.lastError) {
-          console.error('[FoggleBet] Runtime error:', chrome.runtime.lastError.message)
-          setButtonState(btn, 'error')
-          return
-        }
-        if (response?.ok) {
-          setButtonState(btn, 'success')
-        } else {
-          console.error('[FoggleBet] API error:', response?.error)
-          setButtonState(btn, 'error')
-        }
-      })
+    chrome.runtime.sendMessage({ type: 'POST_BETS', payload }, (response) => {
+      if (chrome.runtime.lastError) {
+        console.error('[FoggleBet] Runtime error:', chrome.runtime.lastError.message)
+        setButtonState(btn, 'error')
+        return
+      }
+      if (response?.ok) {
+        setButtonState(btn, 'success')
+      } else {
+        console.error('[FoggleBet] API error:', response?.error)
+        setButtonState(btn, 'error')
+      }
     })
   }
 
