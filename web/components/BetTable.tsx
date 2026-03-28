@@ -81,9 +81,6 @@ function TakenBadge({ is_taken }: { is_taken: boolean }) {
   )
 }
 
-const BOOK_OUTLINE: React.CSSProperties = {
-  textShadow: '-1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000',
-}
 
 function getBetType(market: string | null): string {
   if (!market) return ''
@@ -111,20 +108,7 @@ function BetTypeLabel({ market }: { market: string | null }) {
 }
 
 function BookLabel({ book }: { book: string }) {
-  const lower = book.toLowerCase()
-  let color = 'text-zinc-400/70'
-
-  if (lower.includes('prophetx'))       color = 'text-emerald-400/70'
-  else if (lower.includes('bovada'))    color = 'text-rose-500/70'
-  else if (lower.includes('bookmaker')) color = 'text-amber-300/70'
-  else if (lower.includes('fliff'))     color = 'text-blue-400/70'
-  else if (lower.includes('novig'))     color = 'text-sky-300/70'
-  else if (lower.includes('polymarket'))color = 'text-blue-300/70'
-  else if (lower.includes('pinnacle'))  color = 'text-zinc-200/70'
-  else if (lower.includes('bet105'))    color = 'text-blue-400/70'
-  else if (lower.includes('circa'))     color = 'text-zinc-300/70'
-
-  return <span className={`text-sm font-bold ${color}`} style={BOOK_OUTLINE}>{book}</span>
+  return <span className="text-sm font-bold text-zinc-200/80">{book}</span>
 }
 
 function ChevronIcon({ open }: { open: boolean }) {
