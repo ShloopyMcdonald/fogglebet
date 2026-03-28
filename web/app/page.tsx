@@ -30,7 +30,7 @@ export default async function BetFeed() {
         <span className="text-xs text-zinc-500">{bets.length} bets</span>
       </header>
 
-      <main className="px-4 py-6 max-w-4xl mx-auto">
+      <main className="px-4 py-6 max-w-6xl mx-auto">
         {bets.length === 0 ? (
           <div className="text-center py-24 text-zinc-500 text-sm">
             No bets logged yet. Use the Chrome extension on picktheodds.com to log your first arb.

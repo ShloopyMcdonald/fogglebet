@@ -191,7 +191,7 @@ export function BetTable({ bets }: { bets: Bet[] }) {
               onClick={() => toggle(bet.id)}
             >
               {/* Bet type + Book name */}
-              <div className="hidden sm:flex items-center gap-2 w-36 shrink-0">
+              <div className="hidden sm:flex flex-col items-start justify-center w-28 shrink-0">
                 <BetTypeLabel market={bet.market} />
                 <BookLabel book={bet.book} />
               </div>
