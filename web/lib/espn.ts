@@ -62,13 +62,35 @@ export type BetOutcome = 'win' | 'loss' | 'push'
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 export const ESPN_SPORT_MAP: Record<string, { sport: string; league: string }> = {
+  // Basketball
   NBA:   { sport: 'basketball', league: 'nba' },
-  NFL:   { sport: 'football',   league: 'nfl' },
-  MLB:   { sport: 'baseball',   league: 'mlb' },
-  NHL:   { sport: 'hockey',     league: 'nhl' },
   NCAAB: { sport: 'basketball', league: 'mens-college-basketball' },
-  NCAAF: { sport: 'football',   league: 'college-football' },
   WNBA:  { sport: 'basketball', league: 'wnba' },
+  // Football
+  NFL:   { sport: 'football', league: 'nfl' },
+  NCAAF: { sport: 'football', league: 'college-football' },
+  // Baseball
+  MLB:   { sport: 'baseball', league: 'mlb' },
+  // Hockey
+  NHL:   { sport: 'hockey', league: 'nhl' },
+  // Soccer
+  MLS:                     { sport: 'soccer', league: 'usa.1' },
+  NWSL:                    { sport: 'soccer', league: 'usa.nwsl' },
+  EPL:                     { sport: 'soccer', league: 'eng.1' },
+  'PREMIER LEAGUE':        { sport: 'soccer', league: 'eng.1' },
+  LALIGA:                  { sport: 'soccer', league: 'esp.1' },
+  'LA LIGA':               { sport: 'soccer', league: 'esp.1' },
+  BUNDESLIGA:              { sport: 'soccer', league: 'ger.1' },
+  'SERIE A':               { sport: 'soccer', league: 'ita.1' },
+  'LIGUE 1':               { sport: 'soccer', league: 'fra.1' },
+  UCL:                     { sport: 'soccer', league: 'uefa.champions' },
+  'CHAMPIONS LEAGUE':      { sport: 'soccer', league: 'uefa.champions' },
+  'UEFA CHAMPIONS LEAGUE': { sport: 'soccer', league: 'uefa.champions' },
+  UEL:                     { sport: 'soccer', league: 'uefa.europa' },
+  'EUROPA LEAGUE':         { sport: 'soccer', league: 'uefa.europa' },
+  // Tennis
+  ATP: { sport: 'tennis', league: 'atp' },
+  WTA: { sport: 'tennis', league: 'wta' },
 }
 
 const ESPN_BASE = 'https://site.api.espn.com/apis/site/v2/sports'
@@ -348,8 +370,14 @@ export function determineResult(
   }
 
   // ── Moneyline ──────────────────────────────────────────────────────────────
-  // line = team name, e.g. "Warriors"
+  // line = team name, e.g. "Warriors", or "Draw" for soccer 3-way markets
   if (market === 'Moneyline') {
+    if (normalize(line) === 'draw') {
+      const s1 = parseInt(competitors[0].score)
+      const s2 = parseInt(competitors[1].score)
+      if (isNaN(s1) || isNaN(s2)) return null
+      return s1 === s2 ? 'win' : 'loss'
+    }
     const betComp = findCompetitor(competitors, line)
     if (!betComp) return null
     const oppComp = competitors.find(c => c !== betComp)
