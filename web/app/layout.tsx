@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { TabNav } from "@/components/TabNav";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -35,7 +34,6 @@ export default function RootLayout({
         <header className="border-b border-white/5 px-6 py-4">
           <h1 className="text-lg font-semibold tracking-tight text-white">FoggleBet</h1>
         </header>
-        <TabNav />
         {children}
       </body>
     </html>

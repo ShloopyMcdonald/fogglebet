@@ -1,35 +1,24 @@
 import { supabase, type Bet } from '@/lib/supabase'
-import { BetTable } from '@/components/BetTable'
+import { Dashboard } from '@/components/Dashboard'
 
 export const revalidate = 0
 
-async function getTakenBets(): Promise<Bet[]> {
-  const { data, error } = await supabase
-    .from('bets')
-    .select('*')
-    .eq('is_training', false)
-    .order('recorded_at', { ascending: false })
-    .limit(200)
+async function getAllBets(): Promise<{ taken: Bet[]; training: Bet[] }> {
+  const [takenResult, trainingResult] = await Promise.all([
+    supabase.from('bets').select('*').eq('is_training', false).order('recorded_at', { ascending: false }).limit(200),
+    supabase.from('bets').select('*').eq('is_training', true).order('recorded_at', { ascending: false }).limit(5000),
+  ])
 
-  if (error) {
-    console.error('Failed to fetch bets:', error)
-    return []
+  if (takenResult.error) console.error('Failed to fetch taken bets:', takenResult.error)
+  if (trainingResult.error) console.error('Failed to fetch training bets:', trainingResult.error)
+
+  return {
+    taken: takenResult.data ?? [],
+    training: trainingResult.data ?? [],
   }
-  return data ?? []
 }
 
-export default async function TakenBetsPage() {
-  const bets = await getTakenBets()
-
-  return (
-    <main className="px-4 py-6 max-w-6xl mx-auto w-full">
-      {bets.length === 0 ? (
-        <div className="text-center py-24 text-zinc-500 text-sm">
-          No taken bets yet. Use the Chrome extension on picktheodds.app to log your first bet.
-        </div>
-      ) : (
-        <BetTable bets={bets} />
-      )}
-    </main>
-  )
+export default async function Home() {
+  const { taken, training } = await getAllBets()
+  return <Dashboard takenBets={taken} trainingBets={training} />
 }
