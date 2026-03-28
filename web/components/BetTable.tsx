@@ -85,6 +85,31 @@ const BOOK_OUTLINE: React.CSSProperties = {
   textShadow: '-1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000',
 }
 
+function getBetType(market: string | null): string {
+  if (!market) return ''
+  if (market.includes(' - ')) return 'prop'
+  const lower = market.toLowerCase()
+  if (lower.includes('spread')) return 'spread'
+  if (lower.includes('moneyline')) return 'ml'
+  if (lower.includes('total')) return 'total'
+  return lower
+}
+
+function BetTypeLabel({ market }: { market: string | null }) {
+  const type = getBetType(market)
+  if (!type) return null
+
+  const styles: Record<string, string> = {
+    spread:   'text-violet-400/70',
+    ml:       'text-sky-400/70',
+    total:    'text-amber-400/70',
+    prop:     'text-rose-400/70',
+  }
+  const color = styles[type] ?? 'text-zinc-400/70'
+
+  return <span className={`text-xs font-medium uppercase tracking-wide ${color} shrink-0`}>{type}</span>
+}
+
 function BookLabel({ book }: { book: string }) {
   const lower = book.toLowerCase()
   let color = 'text-zinc-400/70'
@@ -181,8 +206,9 @@ export function BetTable({ bets }: { bets: Bet[] }) {
               className="flex items-center gap-3 px-4 py-2.5 hover:bg-white/[0.03] cursor-pointer border-b border-white/5 transition-colors"
               onClick={() => toggle(bet.id)}
             >
-              {/* Book name */}
-              <div className="hidden sm:block w-24 shrink-0">
+              {/* Bet type + Book name */}
+              <div className="hidden sm:flex items-center gap-2 w-36 shrink-0">
+                <BetTypeLabel market={bet.market} />
                 <BookLabel book={bet.book} />
               </div>
 
