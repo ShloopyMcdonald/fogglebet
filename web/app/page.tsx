@@ -3,22 +3,20 @@ import { Dashboard } from '@/components/Dashboard'
 
 export const revalidate = 0
 
-async function getAllBets(): Promise<{ taken: Bet[]; training: Bet[] }> {
-  const [takenResult, trainingResult] = await Promise.all([
-    supabase.from('bets').select('*').eq('is_training', false).order('recorded_at', { ascending: false }).limit(200),
-    supabase.from('bets').select('*').eq('is_training', true).order('recorded_at', { ascending: false }).limit(5000),
-  ])
+async function getTakenBets(): Promise<Bet[]> {
+  const { data, error } = await supabase
+    .from('bets')
+    .select('*')
+    .eq('is_training', false)
+    .eq('is_taken', true)
+    .order('recorded_at', { ascending: false })
+    .limit(200)
 
-  if (takenResult.error) console.error('Failed to fetch taken bets:', takenResult.error)
-  if (trainingResult.error) console.error('Failed to fetch training bets:', trainingResult.error)
-
-  return {
-    taken: takenResult.data ?? [],
-    training: trainingResult.data ?? [],
-  }
+  if (error) console.error('Failed to fetch taken bets:', error)
+  return data ?? []
 }
 
 export default async function Home() {
-  const { taken, training } = await getAllBets()
-  return <Dashboard takenBets={taken} trainingBets={training} />
+  const takenBets = await getTakenBets()
+  return <Dashboard takenBets={takenBets} />
 }

@@ -1,13 +1,14 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import type { Bet } from '@/lib/supabase'
+import { supabase } from '@/lib/supabase'
 import { BetTable } from '@/components/BetTable'
 
-// ─── Grouping helpers ────────────────────────────────────────────────────────
+// ─── Date helpers ─────────────────────────────────────────────────────────────
 
 function mondayOf(d: Date): Date {
-  const day = d.getDay() // 0=Sun
+  const day = d.getDay()
   const monday = new Date(d)
   monday.setDate(d.getDate() - ((day + 6) % 7))
   monday.setHours(0, 0, 0, 0)
@@ -15,7 +16,7 @@ function mondayOf(d: Date): Date {
 }
 
 function toDateKey(d: Date): string {
-  return d.toISOString().split('T')[0] // "2026-03-28"
+  return d.toISOString().split('T')[0]
 }
 
 function toMonthKey(d: Date): string {
@@ -40,15 +41,20 @@ function formatDayLabel(dayKey: string): string {
   return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
 }
 
-interface DayGroup  { dayKey: string;   bets: Bet[] }
-interface WeekGroup { weekKey: string;  days: DayGroup[] }
-interface MonthGroup { monthKey: string; weeks: WeekGroup[] }
+// ─── Structure types ──────────────────────────────────────────────────────────
 
-function groupBets(bets: Bet[]): MonthGroup[] {
-  const monthMap = new Map<string, Map<string, Map<string, Bet[]>>>()
+type SummaryItem = { recorded_at: string; arb_id: string }
 
-  for (const bet of bets) {
-    const d = new Date(bet.recorded_at)
+interface DayGroup   { dayKey: string;  betCount: number }
+interface WeekGroup  { weekKey: string; betCount: number; days: DayGroup[] }
+interface MonthGroup { monthKey: string; betCount: number; weeks: WeekGroup[] }
+
+function buildStructure(items: SummaryItem[]): MonthGroup[] {
+  // monthKey → weekKey → dayKey → bet count
+  const monthMap = new Map<string, Map<string, Map<string, number>>>()
+
+  for (const item of items) {
+    const d = new Date(item.recorded_at)
     const monthKey = toMonthKey(d)
     const weekKey  = toDateKey(mondayOf(d))
     const dayKey   = toDateKey(d)
@@ -57,24 +63,25 @@ function groupBets(bets: Bet[]): MonthGroup[] {
     const weekMap = monthMap.get(monthKey)!
     if (!weekMap.has(weekKey)) weekMap.set(weekKey, new Map())
     const dayMap = weekMap.get(weekKey)!
-    if (!dayMap.has(dayKey)) dayMap.set(dayKey, [])
-    dayMap.get(dayKey)!.push(bet)
+    dayMap.set(dayKey, (dayMap.get(dayKey) ?? 0) + 1)
   }
 
-  return Array.from(monthMap.entries()).map(([monthKey, weekMap]) => ({
-    monthKey,
-    weeks: Array.from(weekMap.entries()).map(([weekKey, dayMap]) => ({
-      weekKey,
-      days: Array.from(dayMap.entries()).map(([dayKey, dayBets]) => ({ dayKey, bets: dayBets })),
-    })),
-  }))
+  return Array.from(monthMap.entries()).map(([monthKey, weekMap]) => {
+    let monthBetCount = 0
+    const weeks = Array.from(weekMap.entries()).map(([weekKey, dayMap]) => {
+      let weekBetCount = 0
+      const days = Array.from(dayMap.entries()).map(([dayKey, count]) => {
+        weekBetCount += count
+        return { dayKey, betCount: count }
+      })
+      monthBetCount += weekBetCount
+      return { weekKey, betCount: weekBetCount, days }
+    })
+    return { monthKey, betCount: monthBetCount, weeks }
+  })
 }
 
-function arbCount(bets: Bet[]): number {
-  return new Set(bets.map(b => b.arb_id)).size
-}
-
-// ─── Chevron ─────────────────────────────────────────────────────────────────
+// ─── Chevron ──────────────────────────────────────────────────────────────────
 
 function Chevron({ open }: { open: boolean }) {
   return (
@@ -89,25 +96,70 @@ function Chevron({ open }: { open: boolean }) {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function TrainingTable({ bets }: { bets: Bet[] }) {
-  const groups = groupBets(bets)
+type LoadState = 'idle' | 'loading' | 'error'
+type DayData = Bet[] | 'loading' | 'error'
 
-  const today     = toDateKey(new Date())
-  const thisWeek  = toDateKey(mondayOf(new Date()))
-  const thisMonth = toMonthKey(new Date())
+export function TrainingTable() {
+  const [status, setStatus]     = useState<LoadState>('loading')
+  const [structure, setStructure] = useState<MonthGroup[]>([])
 
-  const [openMonths, setOpenMonths] = useState<Set<string>>(() => new Set([thisMonth]))
-  const [openWeeks,  setOpenWeeks]  = useState<Set<string>>(() => new Set([thisWeek]))
-  const [openDays,   setOpenDays]   = useState<Set<string>>(() => new Set([today]))
+  const [openMonths, setOpenMonths] = useState<Set<string>>(new Set())
+  const [openWeeks,  setOpenWeeks]  = useState<Set<string>>(new Set())
+  const [openDays,   setOpenDays]   = useState<Set<string>>(new Set())
 
-  function toggle<T>(set: Set<T>, key: T): Set<T> {
-    const next = new Set(set)
-    if (next.has(key)) next.delete(key)
-    else next.add(key)
-    return next
+  const [dayData, setDayData] = useState<Map<string, DayData>>(new Map())
+
+  // Load lightweight structure (recorded_at + arb_id only) on first mount
+  useEffect(() => {
+    let cancelled = false
+
+    supabase
+      .from('bets')
+      .select('recorded_at, arb_id')
+      .eq('is_training', true)
+      .then(({ data, error }) => {
+        if (cancelled) return
+        if (error || !data) { setStatus('error'); return }
+        setStructure(buildStructure(data as SummaryItem[]))
+        setStatus('idle')
+      })
+
+    return () => { cancelled = true }
+  }, [])
+
+  function toggleMonth(key: string) {
+    setOpenMonths(prev => { const s = new Set(prev); s.has(key) ? s.delete(key) : s.add(key); return s })
+  }
+  function toggleWeek(key: string) {
+    setOpenWeeks(prev => { const s = new Set(prev); s.has(key) ? s.delete(key) : s.add(key); return s })
+  }
+  function toggleDay(dayKey: string) {
+    const isOpening = !openDays.has(dayKey)
+    setOpenDays(prev => { const s = new Set(prev); s.has(dayKey) ? s.delete(dayKey) : s.add(dayKey); return s })
+
+    if (isOpening && !dayData.has(dayKey)) {
+      setDayData(prev => new Map(prev).set(dayKey, 'loading'))
+
+      supabase
+        .from('bets')
+        .select('*')
+        .eq('is_training', true)
+        .gte('recorded_at', dayKey + 'T00:00:00.000Z')
+        .lte('recorded_at', dayKey + 'T23:59:59.999Z')
+        .order('recorded_at', { ascending: false })
+        .then(({ data, error }) => {
+          setDayData(prev => new Map(prev).set(dayKey, error || !data ? 'error' : data as Bet[]))
+        })
+    }
   }
 
-  if (groups.length === 0) {
+  if (status === 'loading') {
+    return <div className="text-center py-24 text-zinc-500 text-sm">Loading training data…</div>
+  }
+  if (status === 'error') {
+    return <div className="text-center py-24 text-red-500 text-sm">Failed to load training data.</div>
+  }
+  if (structure.length === 0) {
     return (
       <div className="text-center py-24 text-zinc-500 text-sm">
         No training data yet. Use the Chrome extension and select &ldquo;Log for training&rdquo;.
@@ -117,73 +169,65 @@ export function TrainingTable({ bets }: { bets: Bet[] }) {
 
   return (
     <div className="space-y-2">
-      {groups.map(({ monthKey, weeks }) => {
-        const monthOpen  = openMonths.has(monthKey)
-        const monthArbs  = arbCount(weeks.flatMap(w => w.days.flatMap(d => d.bets)))
-
+      {structure.map(({ monthKey, betCount: monthBetCount, weeks }) => {
+        const monthOpen = openMonths.has(monthKey)
         return (
           <div key={monthKey} className="rounded-lg border border-white/5 overflow-hidden">
-            {/* Month header */}
             <button
-              onClick={() => setOpenMonths(toggle(openMonths, monthKey))}
+              onClick={() => toggleMonth(monthKey)}
               className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/[0.03] transition-colors"
             >
-              <span className="text-sm font-semibold text-white">
-                {formatMonthLabel(monthKey)}
-              </span>
+              <span className="text-sm font-semibold text-white">{formatMonthLabel(monthKey)}</span>
               <div className="flex items-center gap-3 text-zinc-500">
-                <span className="text-xs">{monthArbs.toLocaleString()} arbs</span>
+                <span className="text-xs">{monthBetCount.toLocaleString()} bets</span>
                 <Chevron open={monthOpen} />
               </div>
             </button>
 
             {monthOpen && (
               <div className="border-t border-white/5">
-                {weeks.map(({ weekKey, days }) => {
+                {weeks.map(({ weekKey, betCount: weekBetCount, days }) => {
                   const weekOpen = openWeeks.has(weekKey)
-                  const weekArbs = arbCount(days.flatMap(d => d.bets))
-
                   return (
                     <div key={weekKey} className="border-b border-white/5 last:border-0">
-                      {/* Week header */}
                       <button
-                        onClick={() => setOpenWeeks(toggle(openWeeks, weekKey))}
+                        onClick={() => toggleWeek(weekKey)}
                         className="w-full flex items-center justify-between px-6 py-2.5 hover:bg-white/[0.03] transition-colors"
                       >
-                        <span className="text-sm font-medium text-zinc-300">
-                          {formatWeekLabel(weekKey)}
-                        </span>
+                        <span className="text-sm font-medium text-zinc-300">{formatWeekLabel(weekKey)}</span>
                         <div className="flex items-center gap-3 text-zinc-500">
-                          <span className="text-xs">{weekArbs.toLocaleString()} arbs</span>
+                          <span className="text-xs">{weekBetCount.toLocaleString()} bets</span>
                           <Chevron open={weekOpen} />
                         </div>
                       </button>
 
                       {weekOpen && (
                         <div className="border-t border-white/5">
-                          {days.map(({ dayKey, bets: dayBets }) => {
+                          {days.map(({ dayKey, betCount: dayBetCount }) => {
                             const dayOpen = openDays.has(dayKey)
-                            const dayArbs = arbCount(dayBets)
-
+                            const data = dayData.get(dayKey)
                             return (
                               <div key={dayKey} className="border-b border-white/5 last:border-0">
-                                {/* Day header */}
                                 <button
-                                  onClick={() => setOpenDays(toggle(openDays, dayKey))}
+                                  onClick={() => toggleDay(dayKey)}
                                   className="w-full flex items-center justify-between px-8 py-2 hover:bg-white/[0.03] transition-colors"
                                 >
-                                  <span className="text-xs font-medium text-zinc-400">
-                                    {formatDayLabel(dayKey)}
-                                  </span>
+                                  <span className="text-xs font-medium text-zinc-400">{formatDayLabel(dayKey)}</span>
                                   <div className="flex items-center gap-3 text-zinc-600">
-                                    <span className="text-xs">{dayArbs.toLocaleString()} arbs</span>
+                                    <span className="text-xs">{dayBetCount.toLocaleString()} bets</span>
                                     <Chevron open={dayOpen} />
                                   </div>
                                 </button>
 
                                 {dayOpen && (
                                   <div className="border-t border-white/5">
-                                    <BetTable bets={dayBets} />
+                                    {data === 'loading' && (
+                                      <div className="py-6 text-center text-xs text-zinc-500">Loading…</div>
+                                    )}
+                                    {data === 'error' && (
+                                      <div className="py-6 text-center text-xs text-red-500">Failed to load bets for this day.</div>
+                                    )}
+                                    {Array.isArray(data) && <BetTable bets={data} />}
                                   </div>
                                 )}
                               </div>
