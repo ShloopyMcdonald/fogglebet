@@ -617,7 +617,11 @@ console.log('[FoggleBet] content script loaded', window.location.href)
         bet_name: leg.bet_name,
         sport: arbData.sport,
         market: arbData.market,
-        line: leg.side_label ?? null,
+        // For spread bets: combine "Purdue" + "-4.5" → "Purdue -4.5" so the cron can resolve it.
+        // For totals/props/moneylines: side_line is null, so just use side_label ("Over 220.5", "Warriors").
+        line: leg.side_line
+          ? `${leg.side_label ?? ''} ${leg.side_line}`.trim()
+          : leg.side_label ?? null,
         book: leg.book ?? 'Unknown',
         odds: leg.odds ?? 0,
         liquidity: leg.liquidity ?? null,
