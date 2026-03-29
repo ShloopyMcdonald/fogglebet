@@ -54,18 +54,21 @@ function PLChart({ bets }: { bets: Bet[] }) {
   const books = [...new Set(settled.map(b => b.book))].sort()
 
   const series = books.map(book => {
-    const pts = settled
-      .filter(b => b.book === book)
-      .map(b => ({
-        time: new Date(b.game_time ?? b.recorded_at).getTime(),
-        pl: computeUnitPL(b.odds, b.result),
-      }))
-      .sort((a, b) => a.time - b.time)
+    // Aggregate by calendar day (YYYY-MM-DD based on game_time/recorded_at)
+    const dayMap = new Map<string, number>()
+    for (const b of settled.filter(bet => bet.book === book)) {
+      const d = new Date(b.game_time ?? b.recorded_at)
+      const dayKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+      dayMap.set(dayKey, (dayMap.get(dayKey) ?? 0) + computeUnitPL(b.odds, b.result))
+    }
+
+    const sortedDays = [...dayMap.entries()].sort(([a], [b]) => a.localeCompare(b))
 
     let cum = 0
-    const points = pts.map(({ time, pl }) => {
+    const points = sortedDays.map(([dayKey, pl]) => {
       cum += pl
-      return { time, cumPL: parseFloat(cum.toFixed(4)) }
+      // Use noon UTC of that day as the timestamp so x-axis placement is stable
+      return { time: new Date(dayKey + 'T12:00:00Z').getTime(), cumPL: parseFloat(cum.toFixed(4)) }
     })
     return { book, points, total: cum }
   })
