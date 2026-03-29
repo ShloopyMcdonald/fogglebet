@@ -4,11 +4,13 @@ import { useState } from 'react'
 import type { Bet } from '@/lib/supabase'
 import { BetTable } from '@/components/BetTable'
 import { TrainingTable } from '@/components/TrainingTable'
+import { StatsPanel } from '@/components/StatsPanel'
 
-type Tab = 'taken' | 'training'
+type Tab = 'taken' | 'training' | 'stats'
 
 const TABS: { label: string; value: Tab }[] = [
   { label: 'Taken Bets', value: 'taken' },
+  { label: 'Stats', value: 'stats' },
   { label: 'Training Data', value: 'training' },
 ]
 
@@ -48,6 +50,10 @@ export function Dashboard({ takenBets }: { takenBets: Bet[] }) {
           ) : (
             <BetTable bets={takenBets} />
           )}
+        </div>
+
+        <div className={tab === 'stats' ? '' : 'hidden'}>
+          <StatsPanel bets={takenBets} />
         </div>
 
         {trainingEverOpened && (
