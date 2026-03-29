@@ -64,18 +64,22 @@ function PLChart({ bets }: { bets: Bet[] }) {
 
     const sortedDays = [...dayMap.entries()].sort(([a], [b]) => a.localeCompare(b))
 
+    const ORIGIN_TIME = new Date('2026-03-27T12:00:00Z').getTime()
+
     let cum = 0
-    const points = sortedDays.map(([dayKey, pl]) => {
+    const points: { time: number; cumPL: number }[] = [{ time: ORIGIN_TIME, cumPL: 0 }]
+    for (const [dayKey, pl] of sortedDays) {
       cum += pl
-      // Use noon UTC of that day as the timestamp so x-axis placement is stable
-      return { time: new Date(dayKey + 'T12:00:00Z').getTime(), cumPL: parseFloat(cum.toFixed(4)) }
-    })
+      const time = new Date(dayKey + 'T12:00:00Z').getTime()
+      if (time > ORIGIN_TIME) points.push({ time, cumPL: parseFloat(cum.toFixed(4)) })
+    }
     return { book, points, total: cum }
   })
 
-  const allTimes = series.flatMap(s => s.points.map(p => p.time))
+  const ORIGIN_TIME = new Date('2026-03-27T12:00:00Z').getTime()
+  const allTimes = [ORIGIN_TIME, ...series.flatMap(s => s.points.map(p => p.time))]
   const allPLs = series.flatMap(s => s.points.map(p => p.cumPL))
-  const minTime = Math.min(...allTimes)
+  const minTime = ORIGIN_TIME
   const maxTime = Math.max(...allTimes)
   const rawMinPL = Math.min(0, Math.min(...allPLs))
   const rawMaxPL = Math.max(0, Math.max(...allPLs))
