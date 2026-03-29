@@ -33,3 +33,29 @@ _Permanent log of bugs, corrections, and decisions. Updated after every user cor
 **Discovery:** `sport` field captured from DOM can be "NCAAB (M)", "NCAAF (W)", etc. The results cron must normalize by stripping the parenthetical suffix before ESPN API lookup.
 
 **Fix:** Applied in cron route: `bet.sport.toUpperCase().replace(/\s*\([^)]*\)\s*$/, '').trim()` before looking up ESPN_SPORT_MAP.
+
+---
+
+## Results cron left many bet types pending due to several ESPN API mismatches
+
+**Root causes (all fixed in `web/lib/espn.ts`):**
+
+1. **NHL box score has no `names` field** — uses `labels` only. `group.names.indexOf()` threw TypeError and crashed the entire cron, leaving all subsequent bets (including normal Moneyline/Spread) unresolved.
+   - Fix: `group.names ?? group.labels ?? group.keys ?? []` via new `groupColNames()` helper.
+
+2. **Totals market stored as "Total Points" / "Total Points 1H"** — not "Total". `market === 'Total'` never matched.
+   - Fix: `market === 'Total' || /^Total /.test(market)`. 1H totals use `competitor.linescores[0]+[1]`.
+
+3. **Combo props use abbreviated stat names** — "Pts + Ast + Reb - Towns, K" → `statType = "Pts + Ast + Reb"`. No mapping existed, and no summing logic existed.
+   - Fix: detect ` + ` in `statType`, split parts, sum individual stats from the same box score row.
+
+4. **3-pointer market stored as "3PT - Monk, M"** — `statType = "3PT"` but only `"3-Pointers Made"` was in `STAT_NAME_MAP`.
+   - Fix: added `'3PT': ['3PT']` to the map.
+
+5. **Pitcher prop market names not in STAT_NAME_MAP** — picktheodds uses "Pitcher Allowed Hits", "Pitcher Earned Runs", "Pitcher Earned Outs", "Pitcher Walks", etc.
+   - Fix: added all these entries. "Pitcher Earned Outs" uses `['IP']` with special IP→outs conversion (`"X.Y"` → `X*3+Y`).
+
+6. **NHL player prop markets** ("Shots on Goal", "Blocked Shots") not in STAT_NAME_MAP.
+   - Fix: added `'Shots on Goal': ['S']` and `'Blocked Shots': ['BS']`.
+
+**Known limitation:** "Total Bases" cannot be computed from ESPN box score (no 2B/3B columns). Those bets stay pending.

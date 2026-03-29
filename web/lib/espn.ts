@@ -12,6 +12,7 @@ interface EspnCompetitor {
   homeAway: 'home' | 'away'
   score: string
   team: EspnTeam
+  linescores?: Array<{ value: number }>
 }
 
 interface EspnCompetition {
@@ -42,7 +43,9 @@ interface EspnAthleteStats {
 }
 
 interface EspnStatGroup {
-  names: string[]
+  names?: string[]    // NBA (and MLB batting/pitching)
+  keys?: string[]     // NHL, MLB (semantic camelCase keys)
+  labels?: string[]   // NHL (short display labels)
   athletes: EspnAthleteStats[]
 }
 
@@ -95,23 +98,42 @@ export const ESPN_SPORT_MAP: Record<string, { sport: string; league: string }> =
 
 const ESPN_BASE = 'https://site.api.espn.com/apis/site/v2/sports'
 
-// Maps our market stat prefix to ESPN box score column name(s)
+// Maps our market stat prefix to ESPN box score column name(s).
+// Column names are matched against group.names ?? group.labels ?? group.keys.
 const STAT_NAME_MAP: Record<string, string[]> = {
-  // Basketball
+  // Basketball — full stat names
   Points:             ['PTS'],
   Rebounds:           ['REB'],
-  Assists:            ['AST'],
+  Assists:            ['AST', 'A'],  // 'AST' for NBA, 'A' for NHL
   Blocks:             ['BLK'],
   Steals:             ['STL'],
   Turnovers:          ['TO'],
   '3-Pointers Made':  ['3PT'],
-  // Baseball
+  // Basketball — abbreviated forms used in combo prop markets ("Pts + Ast + Reb")
+  'Pts':              ['PTS'],
+  'Reb':              ['REB'],
+  'Ast':              ['AST', 'A'],
+  'Blk':              ['BLK'],
+  'Stl':              ['STL'],
+  // 3PT shorthand used in market names like "3PT - Monk, M"
+  '3PT':              ['3PT'],
+  // Baseball — batter props
   Strikeouts:         ['SO', 'K'],
   Hits:               ['H'],
   'Home Runs':        ['HR'],
   RBIs:               ['RBI'],
+  // 'Total Bases' not computable from ESPN box score (no 2B/3B columns)
   'Total Bases':      ['TB'],
   Runs:               ['R'],
+  // Baseball — pitcher props (market prefix "Pitcher ...")
+  'Pitcher Strikeouts':   ['K'],
+  'Pitcher Allowed Hits': ['H'],
+  'Pitcher Earned Runs':  ['ER'],
+  'Pitcher Walks':        ['BB'],
+  'Pitcher Home Runs':    ['HR'],
+  // Pitcher Earned Outs: ESPN stores IP as "X.Y" (e.g. "6.0" = 6 innings).
+  // resolvePlayerProp detects the 'IP' column and converts to outs (X*3+Y).
+  'Pitcher Earned Outs':  ['IP'],
   // Football
   'Receiving Yards':  ['YDS'],
   Receptions:         ['REC'],
@@ -121,9 +143,11 @@ const STAT_NAME_MAP: Record<string, string[]> = {
   'Pass Yards':       ['YDS', 'PYDS'],
   'Pass TDs':         ['TD'],
   Interceptions:      ['INT'],
-  // Hockey
+  // Hockey — NHL box score uses 'labels' field (no 'names'); columns below are NHL labels
   Goals:              ['G'],
-  Shots:              ['S', 'SOG'],
+  'Shots on Goal':    ['S'],   // shotsTotal in NHL labels
+  'Blocked Shots':    ['BS'],  // blockedShots in NHL labels
+  Shots:              ['S'],
 }
 
 // ── Date Helpers ──────────────────────────────────────────────────────────────
@@ -279,6 +303,55 @@ function parsePlayerMarket(market: string): { statType: string; lastName: string
   }
 }
 
+// Return the column-name array for a stat group, handling all ESPN API variants:
+// - NBA uses 'names' (e.g. ['MIN','PTS','REB',...])
+// - NHL uses 'labels' only (no 'names')
+// - MLB has both 'names' and 'labels' (they are identical)
+function groupColNames(group: EspnStatGroup): string[] {
+  return group.names ?? group.labels ?? group.keys ?? []
+}
+
+// Compare a stat value to an over/under threshold
+function compareToLine(value: number, direction: 'over' | 'under', threshold: number): BetOutcome {
+  if (direction === 'over') {
+    if (value > threshold) return 'win'
+    if (value < threshold) return 'loss'
+    return 'push'
+  } else {
+    if (value < threshold) return 'win'
+    if (value > threshold) return 'loss'
+    return 'push'
+  }
+}
+
+// Look up a single stat column index in a group; returns -1 if not found
+function findColIdx(group: EspnStatGroup, statCols: string[]): number {
+  const names = groupColNames(group)
+  for (const col of statCols) {
+    const idx = names.indexOf(col)
+    if (idx !== -1) return idx
+  }
+  return -1
+}
+
+// Parse a raw stat value from the box score.
+// Handles "made-attempted" formats like "3-7" (takes made count),
+// and IP "X.Y" format for 'Pitcher Earned Outs' (converts to outs).
+function parseStatValue(raw: string, statCols: string[]): number {
+  if (!raw || raw === '--') return NaN
+
+  // IP → outs conversion: "6.0"=18 outs, "5.2"=17 outs, "4.1"=13 outs
+  if (statCols.some(c => c === 'IP')) {
+    const ipMatch = raw.match(/^(\d+)\.([012])$/)
+    if (ipMatch) {
+      return parseInt(ipMatch[1]) * 3 + parseInt(ipMatch[2])
+    }
+  }
+
+  // "made-attempted" format (e.g. 3PT "3-7") → take first number
+  return parseFloat(raw.split('-')[0])
+}
+
 function resolvePlayerProp(
   market: string,
   line: string,
@@ -288,11 +361,6 @@ function resolvePlayerProp(
   if (!parsed) return null
 
   const { statType, lastName, firstInitial } = parsed
-  const statCols = STAT_NAME_MAP[statType]
-  if (!statCols || statCols.length === 0) {
-    console.warn(`[espn] No stat mapping for: ${statType}`)
-    return null
-  }
 
   const overUnder = parseOverUnderLine(line)
   if (!overUnder) return null
@@ -300,14 +368,62 @@ function resolvePlayerProp(
 
   const lastNorm = normalize(lastName)
 
+  // ── Combo props (e.g. "Pts + Ast + Reb", "Pts + Ast") ──────────────────────
+  if (statType.includes(' + ')) {
+    const parts = statType.split(' + ').map(p => p.trim())
+
+    for (const teamStats of summary.boxscore?.players ?? []) {
+      for (const group of teamStats.statistics) {
+        // Ensure ALL combo parts have a column in this group
+        const colIndices: number[] = []
+        let allFound = true
+        for (const part of parts) {
+          const statCols = STAT_NAME_MAP[part]
+          if (!statCols) { allFound = false; break }
+          const idx = findColIdx(group, statCols)
+          if (idx === -1) { allFound = false; break }
+          colIndices.push(idx)
+        }
+        if (!allFound) continue
+
+        for (const entry of group.athletes) {
+          const dn = normalize(entry.athlete.displayName)
+          const sn = normalize(entry.athlete.shortName)
+          if (!dn.includes(lastNorm) && !sn.includes(lastNorm)) continue
+
+          if (firstInitial) {
+            const fi = normalize(firstInitial)
+            const fiMatch = dn.startsWith(fi) || sn.startsWith(fi) ||
+              dn.includes(' ' + fi) || sn.includes(' ' + fi)
+            if (!fiMatch) continue
+          }
+
+          let total = 0
+          for (const colIdx of colIndices) {
+            const raw = entry.stats[colIdx]
+            const val = parseStatValue(raw, [])
+            if (isNaN(val)) return null
+            total += val
+          }
+          return compareToLine(total, direction, threshold)
+        }
+      }
+    }
+
+    console.warn(`[espn] Player not found for combo prop: ${lastName}, ${firstInitial}`)
+    return null
+  }
+
+  // ── Single-stat prop ────────────────────────────────────────────────────────
+  const statCols = STAT_NAME_MAP[statType]
+  if (!statCols || statCols.length === 0) {
+    console.warn(`[espn] No stat mapping for: ${statType}`)
+    return null
+  }
+
   for (const teamStats of summary.boxscore?.players ?? []) {
     for (const group of teamStats.statistics) {
-      // Find the stat column index (use first match from our list)
-      let colIdx = -1
-      for (const col of statCols) {
-        const idx = group.names.indexOf(col)
-        if (idx !== -1) { colIdx = idx; break }
-      }
+      const colIdx = findColIdx(group, statCols)
       if (colIdx === -1) continue
 
       for (const entry of group.athletes) {
@@ -316,7 +432,6 @@ function resolvePlayerProp(
 
         if (!dn.includes(lastNorm) && !sn.includes(lastNorm)) continue
 
-        // Optionally confirm first initial
         if (firstInitial) {
           const fi = normalize(firstInitial)
           const fiMatch = dn.startsWith(fi) || sn.startsWith(fi) ||
@@ -324,22 +439,10 @@ function resolvePlayerProp(
           if (!fiMatch) continue
         }
 
-        const rawStat = entry.stats[colIdx]
-        if (!rawStat || rawStat === '--') return null
-
-        // Handle "5-12" format (e.g., 3PT made-attempted): take first number
-        const statValue = parseFloat(rawStat.split('-')[0])
+        const statValue = parseStatValue(entry.stats[colIdx], statCols)
         if (isNaN(statValue)) return null
 
-        if (direction === 'over') {
-          if (statValue > threshold) return 'win'
-          if (statValue < threshold) return 'loss'
-          return 'push'
-        } else {
-          if (statValue < threshold) return 'win'
-          if (statValue > threshold) return 'loss'
-          return 'push'
-        }
+        return compareToLine(statValue, direction, threshold)
       }
     }
   }
@@ -409,14 +512,30 @@ export function determineResult(
   }
 
   // ── Total ──────────────────────────────────────────────────────────────────
+  // market = "Total" | "Total Points" | "Total Points 1H" | "Total Runs" | etc.
   // line = "Over 200.5" or "Under 180.5"
-  if (market === 'Total') {
+  if (market === 'Total' || /^Total /.test(market)) {
     const parsed = parseOverUnderLine(line)
     if (!parsed) return null
-    const score1 = parseInt(competitors[0].score)
-    const score2 = parseInt(competitors[1].score)
+
+    // First-half totals require period linescores
+    const isFirstHalf = /\b1H\b/.test(market)
+    let score1: number
+    let score2: number
+
+    if (isFirstHalf) {
+      const ls0 = competitors[0].linescores
+      const ls1 = competitors[1].linescores
+      score1 = (ls0?.[0]?.value ?? NaN) + (ls0?.[1]?.value ?? NaN)
+      score2 = (ls1?.[0]?.value ?? NaN) + (ls1?.[1]?.value ?? NaN)
+    } else {
+      score1 = parseInt(competitors[0].score)
+      score2 = parseInt(competitors[1].score)
+    }
+
     if (isNaN(score1) || isNaN(score2)) return null
     const total = score1 + score2
+
     if (parsed.direction === 'over') {
       if (total > parsed.threshold) return 'win'
       if (total < parsed.threshold) return 'loss'
