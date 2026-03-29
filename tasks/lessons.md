@@ -62,6 +62,14 @@ _Permanent log of bugs, corrections, and decisions. Updated after every user cor
 
 ---
 
+## Closing odds must match the exact spread/total line, not just team/direction
+
+**Bug:** `findOutcome` for Spread bets matched by team name only — `outcome.point` (the spread value) was parsed from `betLine` but never checked. For Totals, only the Over/Under direction was checked, not the total number. This meant a bet on "Warriors -3" could return closing odds for "Warriors -5".
+
+**Fix:** Both cases now also require `Math.abs(outcome.point - betLine_value) < 0.1`. If the closing line has moved off the bet's exact number, no closing odds are returned (bet stays without CLV) rather than returning wrong odds.
+
+---
+
 ## De-vig uses TKO (Theoretical Kelly Optimization) method, not additive
 
 **Decision:** Replaced the additive de-vig formula (`fairP = p / (p + q)`) with the TKO method from Pinnacle's article by Dan Abrams.

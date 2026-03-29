@@ -280,21 +280,28 @@ function findOutcome(
   }
 
   if (betMarket === 'Spread') {
-    // betLine = "Warriors -3" — match by team keyword only (closing spread may differ)
+    // betLine = "Warriors -3" — must match both team and exact spread point
     const parsed = parseSpreadLine(betLine)
     if (!parsed) return null
     return (
-      market.outcomes.find(o => teamMatchesName(parsed.teamKeyword, o.name)) ?? null
+      market.outcomes.find(o =>
+        teamMatchesName(parsed.teamKeyword, o.name) &&
+        o.point != null && Math.abs(o.point - parsed.spread) < 0.1
+      ) ?? null
     )
   }
 
   if (betMarket === 'Total') {
-    // betLine = "Over 200.5" or "Under 180.5"
-    const m = betLine.match(/^(Over|Under)/i)
+    // betLine = "Over 200.5" or "Under 180.5" — must match both direction and exact total
+    const m = betLine.match(/^(Over|Under)\s+([\d.]+)/i)
     if (!m) return null
     const direction = m[1].toLowerCase()
+    const total = parseFloat(m[2])
     return (
-      market.outcomes.find(o => o.name.toLowerCase() === direction) ?? null
+      market.outcomes.find(o =>
+        o.name.toLowerCase() === direction &&
+        o.point != null && Math.abs(o.point - total) < 0.1
+      ) ?? null
     )
   }
 
