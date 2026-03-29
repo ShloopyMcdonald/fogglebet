@@ -177,13 +177,14 @@ export async function GET(req: NextRequest) {
         continue
       }
 
-      const dirMatch = bet.line.match(/^(Over|Under)/i)
+      const dirMatch = bet.line.match(/^(Over|Under)\s+([\d.]+)/i)
       if (!dirMatch) {
-        console.warn(`[closing-odds-cron] Cannot parse direction from line: "${bet.line}" (bet ${bet.id})`)
+        console.warn(`[closing-odds-cron] Cannot parse direction/value from line: "${bet.line}" (bet ${bet.id})`)
         failedIds.push(bet.id)
         continue
       }
       const direction = dirMatch[1].toLowerCase()
+      const lineValue = parseFloat(dirMatch[2])
 
       const cacheKey = `${sportKey}/${matchedEvent.id}/${propMarketKey}`
       if (!propOddsCache.has(cacheKey)) {
@@ -198,7 +199,7 @@ export async function GET(req: NextRequest) {
       }
       const propEvent = propOddsCache.get(cacheKey)!
 
-      const result = findPropClosingOdds(propEvent, propMarketKey, parsed.lastName, parsed.firstInitial, direction)
+      const result = findPropClosingOdds(propEvent, propMarketKey, parsed.lastName, parsed.firstInitial, direction, lineValue)
       if (!result) {
         console.warn(`[closing-odds-cron] No prop closing odds for bet ${bet.id}`)
         failedIds.push(bet.id)

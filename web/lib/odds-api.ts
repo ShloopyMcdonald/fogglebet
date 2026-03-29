@@ -204,7 +204,8 @@ export function findPropClosingOdds(
   propMarketKey: string,
   lastName: string,
   _firstInitial: string,
-  direction: string   // "over" or "under" (lowercased)
+  direction: string,  // "over" or "under" (lowercased)
+  lineValue: number   // exact prop line, e.g. 24.5 — must match outcome.point
 ): ClosingOddsResult | null {
   const lastNameNorm = normalize(lastName)
 
@@ -225,6 +226,7 @@ export function findPropClosingOdds(
     const outcome = market.outcomes.find(o => {
       if (o.name.toLowerCase() !== direction) return false
       if (!o.description) return false
+      if (o.point == null || Math.abs(o.point - lineValue) >= 0.1) return false
       return normalize(o.description).includes(lastNameNorm)
     })
 
@@ -233,6 +235,7 @@ export function findPropClosingOdds(
       const opposing = market.outcomes.find(o => {
         if (o.name.toLowerCase() !== opposingDirection) return false
         if (!o.description) return false
+        if (o.point == null || Math.abs(o.point - lineValue) >= 0.1) return false
         return normalize(o.description).includes(lastNameNorm)
       })
       return { price: outcome.price, opposingPrice: opposing?.price ?? null, bookKey }
