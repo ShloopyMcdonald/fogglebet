@@ -217,6 +217,17 @@ export function BetTable({ bets }: { bets: Bet[] }) {
                 {formatOdds(bet.odds)}
               </div>
 
+              {/* CLV */}
+              <div className="font-mono text-sm whitespace-nowrap w-16 text-center shrink-0 hidden sm:block">
+                {bet.clv != null ? (
+                  <span className={bet.clv >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+                    {bet.clv > 0 ? '+' : ''}{bet.clv.toFixed(1)}%
+                  </span>
+                ) : (
+                  <span className="text-zinc-700">—</span>
+                )}
+              </div>
+
               <ResultBadge result={bet.result} />
 
               <span className="text-zinc-500 hover:text-emerald-600/80 transition-colors shrink-0">
