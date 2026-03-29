@@ -59,3 +59,19 @@ _Permanent log of bugs, corrections, and decisions. Updated after every user cor
    - Fix: added `'Shots on Goal': ['S']` and `'Blocked Shots': ['BS']`.
 
 **Known limitation:** "Total Bases" cannot be computed from ESPN box score (no 2B/3B columns). Those bets stay pending.
+
+---
+
+## De-vig uses TKO (Theoretical Kelly Optimization) method, not additive
+
+**Decision:** Replaced the additive de-vig formula (`fairP = p / (p + q)`) with the TKO method from Pinnacle's article by Dan Abrams.
+
+**TKO formula** for a two-way market (p1 = favourite implied prob, p2 = longshot implied prob):
+```
+b0 = log[p2 / (1 - p1)] / log[p1 / (1 - p2)]
+true_fav_prob = b0 / (1 + b0)
+```
+
+**Why:** TKO accounts for the favourite-longshot bias — bookmakers apply more margin to longshots than favourites. Additive de-vig assumes margin is split equally, which is empirically wrong. TKO matches the probit-scale and odds-ratio methods that best fit real-world data.
+
+**Note:** The article text has a typo in the intermediate derivation step (numerator/denominator swapped). The final formula `b0 = log[p2/(1-p1)] / log[p1/(1-p2)]` is correct and consistent with the mathematical steps.

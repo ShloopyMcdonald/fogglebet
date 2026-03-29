@@ -371,10 +371,32 @@ function impliedProb(americanOdds: number): number {
   return Math.abs(americanOdds) / (Math.abs(americanOdds) + 100)
 }
 
+// TKO (Theoretical Kelly Optimization) de-vig for two-way markets.
+// Source: https://www.pinnacle.com/en/betting-articles/Betting-Strategy/why-the-favourite-longshot-bias-is-not-a-bias/
+// Formula: b0 = log[p2/(1-p1)] / log[p1/(1-p2)], true_fav = b0/(1+b0)
+// where p1 = favourite implied prob, p2 = longshot implied prob.
+// Falls back to additive if the formula is degenerate (effectively zero vig).
+function deVigTKO(pA: number, pB: number): number {
+  const aIsFav = pA >= pB
+  const p1 = aIsFav ? pA : pB  // favourite
+  const p2 = aIsFav ? pB : pA  // longshot
+
+  const num = Math.log(p2 / (1 - p1))
+  const den = Math.log(p1 / (1 - p2))
+
+  if (!isFinite(num) || !isFinite(den) || Math.abs(den) < 1e-10) {
+    return pA / (pA + pB)  // additive fallback
+  }
+
+  const b0 = num / den
+  const trueFav = b0 / (1 + b0)
+  return aIsFav ? trueFav : 1 - trueFav
+}
+
 // Positive CLV = you beat the closing line (good)
 // Negative CLV = line moved against you
-// When opposingClosingOdds is provided, de-vigs the closing line so both sides
-// of an arb don't both appear as positive CLV.
+// When opposingClosingOdds is provided, de-vigs the closing line (TKO method)
+// so both sides of an arb don't both appear as positive CLV.
 export function calcCLV(
   betOdds: number,
   closingOdds: number,
@@ -383,7 +405,7 @@ export function calcCLV(
   const closingP = impliedProb(closingOdds)
   if (opposingClosingOdds != null) {
     const opposingP = impliedProb(opposingClosingOdds)
-    const fairP = closingP / (closingP + opposingP)
+    const fairP = deVigTKO(closingP, opposingP)
     return (fairP - impliedProb(betOdds)) * 100
   }
   return (closingP - impliedProb(betOdds)) * 100
