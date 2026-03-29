@@ -1,0 +1,291 @@
+// Plain JS tests for odds-api.ts pure logic (no API key needed)
+// Mirrors the structure of espn.test.js
+// Run with: node web/lib/odds-api.test.js
+
+let passed = 0
+let failed = 0
+
+function assert(condition, label) {
+  if (condition) {
+    console.log(`  ✓ ${label}`)
+    passed++
+  } else {
+    console.error(`  ✗ ${label}`)
+    failed++
+  }
+}
+
+// ── Reproduce pure functions inline ───────────────────────────────────────────
+
+function normalize(s) {
+  return s.toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim()
+}
+
+function teamMatchesName(keyword, teamName) {
+  const kw = normalize(keyword)
+  const tn = normalize(teamName)
+  return tn === kw || tn.includes(kw) || kw.includes(tn)
+}
+
+function parseTeamsFromBetName(betName) {
+  const firstSegment = betName.split(' \u2014 ')[0]
+  const vsParts = firstSegment.split(' vs ')
+  if (vsParts.length < 2) return null
+  return [vsParts[0].trim(), vsParts.slice(1).join(' vs ').trim()]
+}
+
+function parseSpreadLine(line) {
+  const m = line.match(/^(.+?)\s*([+-]\d+\.?\d*)$/)
+  if (!m) return null
+  const spread = parseFloat(m[2])
+  if (isNaN(spread)) return null
+  return { teamKeyword: m[1].trim(), spread }
+}
+
+function findEvent(events, team1, team2) {
+  for (const ev of events) {
+    const hasTeam1 = teamMatchesName(team1, ev.home_team) || teamMatchesName(team1, ev.away_team)
+    const hasTeam2 = teamMatchesName(team2, ev.home_team) || teamMatchesName(team2, ev.away_team)
+    if (hasTeam1 && hasTeam2) return ev
+  }
+  return null
+}
+
+function findOutcome(market, betMarket, betLine) {
+  if (betMarket === 'Moneyline') {
+    return market.outcomes.find(o => teamMatchesName(betLine, o.name)) ?? null
+  }
+  if (betMarket === 'Spread') {
+    const parsed = parseSpreadLine(betLine)
+    if (!parsed) return null
+    return market.outcomes.find(o => teamMatchesName(parsed.teamKeyword, o.name)) ?? null
+  }
+  if (betMarket === 'Total') {
+    const m = betLine.match(/^(Over|Under)/i)
+    if (!m) return null
+    const direction = m[1].toLowerCase()
+    return market.outcomes.find(o => o.name.toLowerCase() === direction) ?? null
+  }
+  return null
+}
+
+function impliedProb(americanOdds) {
+  if (americanOdds > 0) return 100 / (100 + americanOdds)
+  return Math.abs(americanOdds) / (Math.abs(americanOdds) + 100)
+}
+
+function calcCLV(betOdds, closingOdds) {
+  return (impliedProb(closingOdds) - impliedProb(betOdds)) * 100
+}
+
+// ── Mock Odds API event ────────────────────────────────────────────────────────
+
+const mockEvent = {
+  id: 'abc123',
+  sport_key: 'basketball_nba',
+  commence_time: '2026-03-29T23:00:00Z',
+  home_team: 'Golden State Warriors',
+  away_team: 'Boston Celtics',
+  bookmakers: [
+    {
+      key: 'draftkings',
+      markets: [
+        {
+          key: 'h2h',
+          outcomes: [
+            { name: 'Golden State Warriors', price: -130 },
+            { name: 'Boston Celtics', price: 110 },
+          ],
+        },
+        {
+          key: 'spreads',
+          outcomes: [
+            { name: 'Golden State Warriors', price: -110, point: -3.5 },
+            { name: 'Boston Celtics', price: -110, point: 3.5 },
+          ],
+        },
+        {
+          key: 'totals',
+          outcomes: [
+            { name: 'Over', price: -110, point: 220.5 },
+            { name: 'Under', price: -110, point: 220.5 },
+          ],
+        },
+      ],
+    },
+    {
+      key: 'pinnacle',
+      markets: [
+        {
+          key: 'h2h',
+          outcomes: [
+            { name: 'Golden State Warriors', price: -125 },
+            { name: 'Boston Celtics', price: 105 },
+          ],
+        },
+      ],
+    },
+  ],
+}
+
+const events = [mockEvent]
+
+// ── findEvent ─────────────────────────────────────────────────────────────────
+
+console.log('\n── findEvent ──')
+
+assert(
+  findEvent(events, 'Golden State Warriors', 'Boston Celtics') === mockEvent,
+  'matches by full team name'
+)
+assert(
+  findEvent(events, 'Warriors', 'Celtics') === mockEvent,
+  'matches by partial name (Warriors / Celtics)'
+)
+assert(
+  findEvent(events, 'golden state', 'boston') === mockEvent,
+  'matches case-insensitive partial'
+)
+assert(
+  findEvent(events, 'Lakers', 'Celtics') === null,
+  'no match when team1 not found'
+)
+assert(
+  findEvent(events, 'Warriors', 'Lakers') === null,
+  'no match when team2 not found'
+)
+
+// ── findOutcome — Moneyline ───────────────────────────────────────────────────
+
+console.log('\n── findOutcome (Moneyline) ──')
+
+const h2hMarket = mockEvent.bookmakers[0].markets.find(m => m.key === 'h2h')
+
+assert(
+  findOutcome(h2hMarket, 'Moneyline', 'Warriors')?.price === -130,
+  'Warriors ML → -130'
+)
+assert(
+  findOutcome(h2hMarket, 'Moneyline', 'Celtics')?.price === 110,
+  'Celtics ML → +110'
+)
+assert(
+  findOutcome(h2hMarket, 'Moneyline', 'Golden State Warriors')?.price === -130,
+  'full team name match → -130'
+)
+assert(
+  findOutcome(h2hMarket, 'Moneyline', 'Lakers') === null,
+  'no match for unknown team'
+)
+
+// ── findOutcome — Spread ──────────────────────────────────────────────────────
+
+console.log('\n── findOutcome (Spread) ──')
+
+const spreadsMarket = mockEvent.bookmakers[0].markets.find(m => m.key === 'spreads')
+
+assert(
+  findOutcome(spreadsMarket, 'Spread', 'Warriors -3')?.price === -110,
+  'Warriors -3 spread → -110 (closing spread may differ from recorded)'
+)
+assert(
+  findOutcome(spreadsMarket, 'Spread', 'Celtics +5')?.price === -110,
+  'Celtics +5 → -110 (matched by team name, ignores recorded point)'
+)
+assert(
+  findOutcome(spreadsMarket, 'Spread', 'Lakers -3') === null,
+  'no match for unknown team'
+)
+
+// ── findOutcome — Total ───────────────────────────────────────────────────────
+
+console.log('\n── findOutcome (Total) ──')
+
+const totalsMarket = mockEvent.bookmakers[0].markets.find(m => m.key === 'totals')
+
+assert(
+  findOutcome(totalsMarket, 'Total', 'Over 220.5')?.price === -110,
+  'Over 220.5 → -110'
+)
+assert(
+  findOutcome(totalsMarket, 'Total', 'Under 215')?.price === -110,
+  'Under 215 → -110 (closing total may differ)'
+)
+assert(
+  findOutcome(totalsMarket, 'Total', 'Warriors -3') === null,
+  'non over/under line → null'
+)
+
+// ── calcCLV ───────────────────────────────────────────────────────────────────
+
+console.log('\n── calcCLV ──')
+
+// Bet at -110, closes at -130 → you beat the line (positive CLV)
+const clv1 = calcCLV(-110, -130)
+assert(clv1 > 0, 'bet -110, close -130 → positive CLV (beat the line)')
+assert(Math.abs(clv1 - 4.14) < 0.01, `CLV = ~4.14% (got ${clv1.toFixed(2)})`)
+
+// Bet at -130, closes at -110 → line moved in your favour (negative CLV)
+const clv2 = calcCLV(-130, -110)
+assert(clv2 < 0, 'bet -130, close -110 → negative CLV (line moved favourably)')
+
+// Identical odds → 0 CLV
+const clv3 = calcCLV(-110, -110)
+assert(Math.abs(clv3) < 0.001, 'same odds → 0 CLV')
+
+// Positive American odds
+const clv4 = calcCLV(110, 100)  // bet +110, closes +100 → beat the line
+assert(clv4 > 0, 'bet +110, close +100 → positive CLV')
+
+// ── impliedProb sanity ────────────────────────────────────────────────────────
+
+console.log('\n── impliedProb ──')
+
+assert(Math.abs(impliedProb(-110) - 0.5238) < 0.001, '-110 → ~52.38%')
+assert(Math.abs(impliedProb(100)  - 0.5)    < 0.001, '+100 → 50.00%')
+assert(Math.abs(impliedProb(-200) - 0.6667) < 0.001, '-200 → ~66.67%')
+assert(Math.abs(impliedProb(200)  - 0.3333) < 0.001, '+200 → ~33.33%')
+
+// ── Sharp book priority (Pinnacle over DraftKings) ────────────────────────────
+
+console.log('\n── Sharp book priority ──')
+
+// Simulate findClosingOdds priority: pinnacle has h2h but not spreads/totals
+// For h2h, pinnacle (-125) should be preferred over draftkings (-130)
+const SHARP_PRIORITY = ['pinnacle', 'betonsports', 'draftkings', 'fanduel', 'betmgm', 'caesars']
+
+function simulateFindClosingOdds(event, betMarket, betLine) {
+  const marketKeyMap = { Moneyline: 'h2h', Spread: 'spreads', Total: 'totals' }
+  const oddsKey = marketKeyMap[betMarket]
+  if (!oddsKey) return null
+
+  const allKeys = [
+    ...SHARP_PRIORITY,
+    ...event.bookmakers.map(b => b.key).filter(k => !SHARP_PRIORITY.includes(k)),
+  ]
+
+  for (const bookKey of allKeys) {
+    const bm = event.bookmakers.find(b => b.key === bookKey)
+    if (!bm) continue
+    const market = bm.markets.find(m => m.key === oddsKey)
+    if (!market) continue
+    const outcome = findOutcome(market, betMarket, betLine)
+    if (outcome) return { price: outcome.price, bookKey }
+  }
+  return null
+}
+
+const mlResult = simulateFindClosingOdds(mockEvent, 'Moneyline', 'Warriors')
+assert(mlResult?.bookKey === 'pinnacle', 'Moneyline uses pinnacle when available')
+assert(mlResult?.price === -125, 'Pinnacle Warriors ML price = -125')
+
+// Spread: pinnacle doesn't have spreads in mock, falls back to draftkings
+const spreadResult = simulateFindClosingOdds(mockEvent, 'Spread', 'Warriors -3')
+assert(spreadResult?.bookKey === 'draftkings', 'Spread falls back to draftkings when pinnacle lacks it')
+assert(spreadResult?.price === -110, 'DraftKings Warriors spread price = -110')
+
+// ── Summary ───────────────────────────────────────────────────────────────────
+
+console.log(`\n── Results: ${passed} passed, ${failed} failed ──`)
+
+if (failed > 0) process.exit(1)

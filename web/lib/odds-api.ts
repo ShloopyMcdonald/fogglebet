@@ -71,13 +71,13 @@ const BET_MARKET_TO_ODDS_KEY: Record<string, string> = {
 // Sharpest books in priority order (Odds API keys)
 const SHARP_BOOK_PRIORITY = [
   'pinnacle',
-  'betonsports',
+  'betonlineag',   // BetOnline.ag — sharp, takes action
   'draftkings',
   'fanduel',
   'betmgm',
   'caesars',
   'williamhill_us',
-  'pointsbet',
+  'pointsbetus',
 ]
 
 const ODDS_API_BASE = 'https://api.the-odds-api.com/v4/sports'
@@ -97,15 +97,20 @@ function teamMatchesName(keyword: string, teamName: string): boolean {
 // ── API Fetching ──────────────────────────────────────────────────────────────
 
 export async function fetchOdds(sportKey: string, apiKey: string): Promise<OddsEvent[]> {
+  // regions=us only: cost = 3 credits (1 per market). us,us2,eu would be 9.
   const url =
     `${ODDS_API_BASE}/${sportKey}/odds` +
     `?apiKey=${apiKey}` +
-    `&regions=us,us2,eu` +
+    `&regions=us` +
     `&markets=h2h,spreads,totals` +
-    `&oddsFormat=american` +
-    `&dateFormat=iso`
+    `&oddsFormat=american`
 
   const res = await fetch(url, { cache: 'no-store' })
+  // Log quota usage from response headers
+  const remaining = res.headers.get('x-requests-remaining')
+  const used = res.headers.get('x-requests-used')
+  const cost = res.headers.get('x-requests-last')
+  console.log(`[odds-api] ${sportKey} quota — cost: ${cost}, used: ${used}, remaining: ${remaining}`)
   if (!res.ok) {
     const text = await res.text()
     throw new Error(`[odds-api] fetchOdds ${sportKey} failed ${res.status}: ${text}`)
