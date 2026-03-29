@@ -252,7 +252,7 @@ console.log('\n── Sharp book priority ──')
 
 // Simulate findClosingOdds priority: pinnacle has h2h but not spreads/totals
 // For h2h, pinnacle (-125) should be preferred over draftkings (-130)
-const SHARP_PRIORITY = ['pinnacle', 'betonsports', 'draftkings', 'fanduel', 'betmgm', 'caesars']
+const SHARP_PRIORITY = ['pinnacle', 'betonsports', 'fanduel', 'draftkings', 'betmgm', 'caesars']
 
 function simulateFindClosingOdds(event, betMarket, betLine) {
   const marketKeyMap = { Moneyline: 'h2h', Spread: 'spreads', Total: 'totals' }
@@ -325,7 +325,7 @@ assert(parsePropMarketStr('') === null, 'empty string → null')
 
 console.log('\n── findPropClosingOdds ──')
 
-const PROP_SHARP_PRIORITY = ['pinnacle', 'betonlineag', 'draftkings', 'fanduel', 'betmgm', 'caesars', 'williamhill_us', 'pointsbetus']
+const PROP_SHARP_PRIORITY = ['pinnacle', 'betonlineag', 'fanduel', 'draftkings', 'betmgm', 'caesars', 'williamhill_us', 'pointsbetus']
 
 function findPropClosingOdds(event, propMarketKey, lastName, _firstInitial, direction) {
   const lastNameNorm = normalize(lastName)

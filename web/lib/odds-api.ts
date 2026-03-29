@@ -73,8 +73,8 @@ const BET_MARKET_TO_ODDS_KEY: Record<string, string> = {
 const SHARP_BOOK_PRIORITY = [
   'pinnacle',
   'betonlineag',   // BetOnline.ag — sharp, takes action
-  'draftkings',
   'fanduel',
+  'draftkings',
   'betmgm',
   'caesars',
   'williamhill_us',
