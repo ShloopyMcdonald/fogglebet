@@ -1,0 +1,24 @@
+name: Capture Closing Odds
+
+on:
+  schedule:
+    # Run every 5 minutes to catch game start windows
+    - cron: '*/5 * * * *'
+  # Allow manual trigger for testing
+  workflow_dispatch:
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call closing-odds cron endpoint
+        run: |
+          STATUS=$(curl -s -o /tmp/response.json -w "%{http_code}" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            https://fogglebet.vercel.app/api/cron/closing-odds)
+          echo "HTTP status: $STATUS"
+          cat /tmp/response.json
+          if [ "$STATUS" != "200" ]; then
+            echo "Endpoint returned non-200 status"
+            exit 1
+          fi
