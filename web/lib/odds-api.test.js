@@ -284,6 +284,132 @@ const spreadResult = simulateFindClosingOdds(mockEvent, 'Spread', 'Warriors -3')
 assert(spreadResult?.bookKey === 'draftkings', 'Spread falls back to draftkings when pinnacle lacks it')
 assert(spreadResult?.price === -110, 'DraftKings Warriors spread price = -110')
 
+// ── parsePropMarketStr ────────────────────────────────────────────────────────
+
+console.log('\n── parsePropMarketStr ──')
+
+function parsePropMarketStr(market) {
+  const dashIdx = market.indexOf(' - ')
+  if (dashIdx === -1) return null
+  const statType = market.slice(0, dashIdx).trim()
+  const playerPart = market.slice(dashIdx + 3).trim()
+  const commaIdx = playerPart.indexOf(',')
+  if (commaIdx === -1) {
+    return { statType, lastName: playerPart, firstInitial: '' }
+  }
+  return {
+    statType,
+    lastName: playerPart.slice(0, commaIdx).trim(),
+    firstInitial: playerPart.slice(commaIdx + 1).trim(),
+  }
+}
+
+const p1 = parsePropMarketStr('Points - Doncic, L')
+assert(p1?.statType === 'Points', 'statType = "Points"')
+assert(p1?.lastName === 'Doncic', 'lastName = "Doncic"')
+assert(p1?.firstInitial === 'L', 'firstInitial = "L"')
+
+const p2 = parsePropMarketStr('Pass Yards - Mahomes, P')
+assert(p2?.statType === 'Pass Yards', 'statType = "Pass Yards"')
+assert(p2?.lastName === 'Mahomes', 'lastName = "Mahomes"')
+
+const p3 = parsePropMarketStr('Strikeouts - Scherzer')
+assert(p3?.statType === 'Strikeouts', 'statType = "Strikeouts"')
+assert(p3?.lastName === 'Scherzer', 'lastName = "Scherzer" (no comma)')
+assert(p3?.firstInitial === '', 'firstInitial = "" when no comma')
+
+assert(parsePropMarketStr('Moneyline') === null, 'no " - " → null')
+assert(parsePropMarketStr('') === null, 'empty string → null')
+
+// ── findPropClosingOdds ───────────────────────────────────────────────────────
+
+console.log('\n── findPropClosingOdds ──')
+
+const PROP_SHARP_PRIORITY = ['pinnacle', 'betonlineag', 'draftkings', 'fanduel', 'betmgm', 'caesars', 'williamhill_us', 'pointsbetus']
+
+function findPropClosingOdds(event, propMarketKey, lastName, _firstInitial, direction) {
+  const lastNameNorm = normalize(lastName)
+  const bookmakerOrder = [
+    ...PROP_SHARP_PRIORITY,
+    ...event.bookmakers.map(b => b.key).filter(k => !PROP_SHARP_PRIORITY.includes(k)),
+  ]
+  for (const bookKey of bookmakerOrder) {
+    const bookmaker = event.bookmakers.find(b => b.key === bookKey)
+    if (!bookmaker) continue
+    const market = bookmaker.markets.find(m => m.key === propMarketKey)
+    if (!market) continue
+    const outcome = market.outcomes.find(o => {
+      if (o.name.toLowerCase() !== direction) return false
+      if (!o.description) return false
+      return normalize(o.description).includes(lastNameNorm)
+    })
+    if (outcome) return { price: outcome.price, bookKey }
+  }
+  return null
+}
+
+const mockPropEvent = {
+  id: 'prop_event_1',
+  sport_key: 'basketball_nba',
+  commence_time: '2026-03-29T23:00:00Z',
+  home_team: 'Dallas Mavericks',
+  away_team: 'Los Angeles Lakers',
+  bookmakers: [
+    {
+      key: 'draftkings',
+      markets: [
+        {
+          key: 'player_points',
+          outcomes: [
+            { name: 'Over',  description: 'Luka Doncic', price: -115, point: 29.5 },
+            { name: 'Under', description: 'Luka Doncic', price: -105, point: 29.5 },
+            { name: 'Over',  description: 'Anthony Davis', price: -110, point: 24.5 },
+            { name: 'Under', description: 'Anthony Davis', price: -110, point: 24.5 },
+          ],
+        },
+      ],
+    },
+    {
+      key: 'pinnacle',
+      markets: [
+        {
+          key: 'player_points',
+          outcomes: [
+            { name: 'Over',  description: 'Luka Doncic', price: -112, point: 29.5 },
+            { name: 'Under', description: 'Luka Doncic', price: -108, point: 29.5 },
+          ],
+        },
+      ],
+    },
+  ],
+}
+
+// Pinnacle preferred over DraftKings
+const propRes1 = findPropClosingOdds(mockPropEvent, 'player_points', 'Doncic', 'L', 'over')
+assert(propRes1?.bookKey === 'pinnacle', 'Pinnacle preferred over DraftKings for Doncic Over')
+assert(propRes1?.price === -112, 'Doncic Over at Pinnacle = -112')
+
+// Under direction
+const propRes2 = findPropClosingOdds(mockPropEvent, 'player_points', 'Doncic', 'L', 'under')
+assert(propRes2?.price === -108, 'Doncic Under at Pinnacle = -108')
+
+// Davis only at DraftKings (Pinnacle doesn't have him)
+const propRes3 = findPropClosingOdds(mockPropEvent, 'player_points', 'Davis', 'A', 'over')
+assert(propRes3?.bookKey === 'draftkings', 'Davis falls back to DraftKings')
+assert(propRes3?.price === -110, 'Davis Over at DraftKings = -110')
+
+// Unknown player → null
+const propRes4 = findPropClosingOdds(mockPropEvent, 'player_points', 'LeBron', 'L', 'over')
+assert(propRes4 === null, 'unknown player → null')
+
+// Wrong market key → null
+const propRes5 = findPropClosingOdds(mockPropEvent, 'player_rebounds', 'Doncic', 'L', 'over')
+assert(propRes5 === null, 'wrong market key → null')
+
+// Case-insensitive player name match
+const propRes6 = findPropClosingOdds(mockPropEvent, 'player_points', 'doncic', 'L', 'over')
+assert(propRes6?.price === -112, 'case-insensitive lastName match')
+
 // ── Summary ───────────────────────────────────────────────────────────────────
 
 console.log(`\n── Results: ${passed} passed, ${failed} failed ──`)
