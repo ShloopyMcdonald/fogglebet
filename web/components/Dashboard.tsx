@@ -53,7 +53,7 @@ export function Dashboard({ takenBets }: { takenBets: Bet[] }) {
         </div>
 
         <div className={tab === 'stats' ? '' : 'hidden'}>
-          <StatsPanel bets={takenBets} />
+          <StatsPanel takenBets={takenBets} />
         </div>
 
         {trainingEverOpened && (

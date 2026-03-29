@@ -1,6 +1,8 @@
 'use client'
 
+import { useState, useEffect } from 'react'
 import type { Bet, BetResult } from '@/lib/supabase'
+import { supabase } from '@/lib/supabase'
 
 const BOOK_COLORS = [
   '#34d399', // emerald
@@ -38,12 +40,12 @@ function niceTicks(min: number, max: number): number[] {
   return ticks
 }
 
-export function StatsPanel({ bets }: { bets: Bet[] }) {
+function PLChart({ bets }: { bets: Bet[] }) {
   const settled = bets.filter(b => b.result !== 'pending')
 
   if (settled.length === 0) {
     return (
-      <div className="text-center py-24 text-zinc-500 text-sm">
+      <div className="text-center py-12 text-zinc-600 text-sm">
         No settled bets yet.
       </div>
     )
@@ -97,10 +99,6 @@ export function StatsPanel({ bets }: { bets: Bet[] }) {
 
   return (
     <div>
-      <h2 className="text-sm font-medium text-zinc-400 uppercase tracking-wide mb-4">
-        Cumulative P&amp;L by Sportsbook (units, 1u/bet)
-      </h2>
-
       {/* Legend */}
       <div className="flex flex-wrap gap-x-5 gap-y-2 mb-5">
         {series.map(({ book, total }, i) => {
@@ -217,6 +215,68 @@ export function StatsPanel({ bets }: { bets: Bet[] }) {
           )
         })}
       </svg>
+    </div>
+  )
+}
+
+function SectionHeading({ title, count }: { title: string; count: number | null }) {
+  return (
+    <div className="flex items-baseline gap-3 mb-4">
+      <h2 className="text-sm font-semibold text-white uppercase tracking-wide">{title}</h2>
+      {count !== null && (
+        <span className="text-xs text-zinc-500">{count} settled bet{count !== 1 ? 's' : ''}</span>
+      )}
+    </div>
+  )
+}
+
+export function StatsPanel({ takenBets }: { takenBets: Bet[] }) {
+  const [trainingBets, setTrainingBets] = useState<Bet[] | null>(null)
+  const [loadError, setLoadError] = useState(false)
+
+  useEffect(() => {
+    supabase
+      .from('bets')
+      .select('*')
+      .eq('is_training', true)
+      .neq('result', 'pending')
+      .then(({ data, error }) => {
+        if (error || !data) { setLoadError(true); return }
+        setTrainingBets(data as Bet[])
+      })
+  }, [])
+
+  const settledTaken = takenBets.filter(b => b.result !== 'pending')
+
+  return (
+    <div className="space-y-10">
+      {/* ── Training Stats ─────────────────────────────────────────── */}
+      <section>
+        <SectionHeading
+          title="Training Stats"
+          count={trainingBets ? trainingBets.length : null}
+        />
+        <div className="rounded-lg border border-white/5 px-5 py-5">
+          {loadError ? (
+            <div className="text-center py-12 text-red-500 text-sm">Failed to load training bets.</div>
+          ) : trainingBets === null ? (
+            <div className="text-center py-12 text-zinc-600 text-sm">Loading…</div>
+          ) : (
+            <PLChart bets={trainingBets} />
+          )}
+        </div>
+      </section>
+
+      {/* ── Real Stats ─────────────────────────────────────────────── */}
+      <section>
+        <SectionHeading
+          title="Real Stats"
+          count={settledTaken.length}
+        />
+        <div className="rounded-lg border border-white/5 px-5 py-5">
+          <PLChart bets={takenBets} />
+        </div>
+      </section>
     </div>
   )
 }
