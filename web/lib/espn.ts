@@ -147,6 +147,7 @@ const STAT_NAME_MAP: Record<string, string[]> = {
   Goals:              ['G'],
   'Shots on Goal':    ['S'],   // shotsTotal in NHL labels
   'Blocked Shots':    ['BS'],  // blockedShots in NHL labels
+  'Shots Saved':      ['SV'],  // goalie saves in NHL labels
   Shots:              ['S'],
 }
 
