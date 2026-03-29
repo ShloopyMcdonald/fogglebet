@@ -4,9 +4,10 @@ import { parseTeamsFromBetName } from './espn'
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface OddsOutcome {
-  name: string    // team name, "Over", or "Under"
-  price: number   // American odds
-  point?: number  // spread or total value
+  name: string         // team name, "Over", or "Under"
+  price: number        // American odds
+  point?: number       // spread or total value
+  description?: string // player full name for prop markets (e.g. "Luka Doncic")
 }
 
 export interface OddsMarket {
@@ -80,6 +81,37 @@ const SHARP_BOOK_PRIORITY = [
   'pointsbetus',
 ]
 
+// statType (from bet.market "Points - Doncic, L") → Odds API player prop market key
+export const PROP_MARKET_KEY_MAP: Record<string, string> = {
+  // Basketball
+  Points:            'player_points',
+  Rebounds:          'player_rebounds',
+  Assists:           'player_assists',
+  Blocks:            'player_blocks',
+  Steals:            'player_steals',
+  Turnovers:         'player_turnovers',
+  '3-Pointers Made': 'player_threes',
+  // Football
+  'Pass Yards':      'player_pass_yds',
+  'Pass TDs':        'player_pass_tds',
+  Interceptions:     'player_pass_interceptions',
+  'Rush Yards':      'player_rush_yds',
+  'Rushing TDs':     'player_rush_tds',
+  'Receiving Yards': 'player_reception_yds',
+  Receptions:        'player_receptions',
+  'Receiving TDs':   'player_reception_tds',
+  // Baseball (picktheodds context: Strikeouts = pitcher)
+  Strikeouts:        'pitcher_strikeouts',
+  Hits:              'batter_hits',
+  'Home Runs':       'batter_home_runs',
+  RBIs:              'batter_rbis',
+  'Total Bases':     'batter_total_bases',
+  Runs:              'batter_runs_scored',
+  // Hockey
+  Goals:             'player_goals',
+  Shots:             'player_shots_on_goal',
+}
+
 const ODDS_API_BASE = 'https://api.the-odds-api.com/v4/sports'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -118,9 +150,96 @@ export async function fetchOdds(sportKey: string, apiKey: string): Promise<OddsE
   return res.json() as Promise<OddsEvent[]>
 }
 
+// Fetches odds for a single event — required for player prop markets
+// Returns the event with bookmakers populated for the requested market only
+export async function fetchEventOdds(
+  sportKey: string,
+  eventId: string,
+  marketKey: string,
+  apiKey: string
+): Promise<OddsEvent> {
+  const url =
+    `${ODDS_API_BASE}/${sportKey}/events/${eventId}/odds` +
+    `?apiKey=${apiKey}` +
+    `&regions=us` +
+    `&markets=${marketKey}` +
+    `&oddsFormat=american`
+
+  const res = await fetch(url, { cache: 'no-store' })
+  const remaining = res.headers.get('x-requests-remaining')
+  const used = res.headers.get('x-requests-used')
+  const cost = res.headers.get('x-requests-last')
+  console.log(`[odds-api] event-odds ${eventId}/${marketKey} quota — cost: ${cost}, used: ${used}, remaining: ${remaining}`)
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`[odds-api] fetchEventOdds ${eventId}/${marketKey} failed ${res.status}: ${text}`)
+  }
+  return res.json() as Promise<OddsEvent>
+}
+
+// ── Player Prop Helpers ───────────────────────────────────────────────────────
+
+// "Points - Doncic, L" → { statType: "Points", lastName: "Doncic", firstInitial: "L" }
+export function parsePropMarketStr(
+  market: string
+): { statType: string; lastName: string; firstInitial: string } | null {
+  const dashIdx = market.indexOf(' - ')
+  if (dashIdx === -1) return null
+  const statType = market.slice(0, dashIdx).trim()
+  const playerPart = market.slice(dashIdx + 3).trim()
+  const commaIdx = playerPart.indexOf(',')
+  if (commaIdx === -1) {
+    return { statType, lastName: playerPart, firstInitial: '' }
+  }
+  return {
+    statType,
+    lastName: playerPart.slice(0, commaIdx).trim(),
+    firstInitial: playerPart.slice(commaIdx + 1).trim(),
+  }
+}
+
+// Match prop outcome: direction (over/under) + player lastName in description
+export function findPropClosingOdds(
+  event: OddsEvent,
+  propMarketKey: string,
+  lastName: string,
+  _firstInitial: string,
+  direction: string   // "over" or "under" (lowercased)
+): ClosingOddsResult | null {
+  const lastNameNorm = normalize(lastName)
+
+  const bookmakerOrder = [
+    ...SHARP_BOOK_PRIORITY,
+    ...event.bookmakers
+      .map(b => b.key)
+      .filter(k => !SHARP_BOOK_PRIORITY.includes(k)),
+  ]
+
+  for (const bookKey of bookmakerOrder) {
+    const bookmaker = event.bookmakers.find(b => b.key === bookKey)
+    if (!bookmaker) continue
+
+    const market = bookmaker.markets.find(m => m.key === propMarketKey)
+    if (!market) continue
+
+    const outcome = market.outcomes.find(o => {
+      if (o.name.toLowerCase() !== direction) return false
+      if (!o.description) return false
+      return normalize(o.description).includes(lastNameNorm)
+    })
+
+    if (outcome) return { price: outcome.price, bookKey }
+  }
+
+  console.warn(
+    `[odds-api] No prop outcome found: ${propMarketKey} / ${direction} / ${lastName}`
+  )
+  return null
+}
+
 // ── Event Matching ────────────────────────────────────────────────────────────
 
-function findEvent(events: OddsEvent[], team1: string, team2: string): OddsEvent | null {
+export function findEvent(events: OddsEvent[], team1: string, team2: string): OddsEvent | null {
   for (const ev of events) {
     const hasTeam1 = teamMatchesName(team1, ev.home_team) || teamMatchesName(team1, ev.away_team)
     const hasTeam2 = teamMatchesName(team2, ev.home_team) || teamMatchesName(team2, ev.away_team)
@@ -250,3 +369,4 @@ export function calcCLV(betOdds: number, closingOdds: number): number {
 
 // ── Export market key map for use in route ────────────────────────────────────
 export { MARKET_KEY_MAP }
+
