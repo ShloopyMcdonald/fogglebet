@@ -228,7 +228,15 @@ export function findPropClosingOdds(
       return normalize(o.description).includes(lastNameNorm)
     })
 
-    if (outcome) return { price: outcome.price, bookKey }
+    if (outcome) {
+      const opposingDirection = direction === 'over' ? 'under' : 'over'
+      const opposing = market.outcomes.find(o => {
+        if (o.name.toLowerCase() !== opposingDirection) return false
+        if (!o.description) return false
+        return normalize(o.description).includes(lastNameNorm)
+      })
+      return { price: outcome.price, opposingPrice: opposing?.price ?? null, bookKey }
+    }
   }
 
   console.warn(
@@ -296,8 +304,9 @@ function findOutcome(
 // ── Main: find closing odds for a bet ─────────────────────────────────────────
 
 export interface ClosingOddsResult {
-  price: number    // American odds at closing
-  bookKey: string  // which bookmaker was used
+  price: number              // American odds at closing (our side)
+  opposingPrice: number | null  // opposing outcome's odds (same book) — used for de-vig
+  bookKey: string            // which bookmaker was used
 }
 
 export function findClosingOdds(
@@ -344,7 +353,8 @@ export function findClosingOdds(
 
     const outcome = findOutcome(market, bet.market!, bet.line)
     if (outcome) {
-      return { price: outcome.price, bookKey }
+      const opposing = market.outcomes.find(o => o !== outcome)
+      return { price: outcome.price, opposingPrice: opposing?.price ?? null, bookKey }
     }
   }
 
@@ -363,8 +373,20 @@ function impliedProb(americanOdds: number): number {
 
 // Positive CLV = you beat the closing line (good)
 // Negative CLV = line moved against you
-export function calcCLV(betOdds: number, closingOdds: number): number {
-  return (impliedProb(closingOdds) - impliedProb(betOdds)) * 100
+// When opposingClosingOdds is provided, de-vigs the closing line so both sides
+// of an arb don't both appear as positive CLV.
+export function calcCLV(
+  betOdds: number,
+  closingOdds: number,
+  opposingClosingOdds: number | null
+): number {
+  const closingP = impliedProb(closingOdds)
+  if (opposingClosingOdds != null) {
+    const opposingP = impliedProb(opposingClosingOdds)
+    const fairP = closingP / (closingP + opposingP)
+    return (fairP - impliedProb(betOdds)) * 100
+  }
+  return (closingP - impliedProb(betOdds)) * 100
 }
 
 // ── Export market key map for use in route ────────────────────────────────────

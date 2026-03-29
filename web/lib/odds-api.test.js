@@ -74,8 +74,14 @@ function impliedProb(americanOdds) {
   return Math.abs(americanOdds) / (Math.abs(americanOdds) + 100)
 }
 
-function calcCLV(betOdds, closingOdds) {
-  return (impliedProb(closingOdds) - impliedProb(betOdds)) * 100
+function calcCLV(betOdds, closingOdds, opposingClosingOdds) {
+  const closingP = impliedProb(closingOdds)
+  if (opposingClosingOdds != null) {
+    const opposingP = impliedProb(opposingClosingOdds)
+    const fairP = closingP / (closingP + opposingP)
+    return (fairP - impliedProb(betOdds)) * 100
+  }
+  return (closingP - impliedProb(betOdds)) * 100
 }
 
 // ── Mock Odds API event ────────────────────────────────────────────────────────
@@ -220,22 +226,35 @@ assert(
 
 console.log('\n── calcCLV ──')
 
-// Bet at -110, closes at -130 → you beat the line (positive CLV)
-const clv1 = calcCLV(-110, -130)
-assert(clv1 > 0, 'bet -110, close -130 → positive CLV (beat the line)')
-assert(Math.abs(clv1 - 4.14) < 0.01, `CLV = ~4.14% (got ${clv1.toFixed(2)})`)
+// Without opposing odds (null) — same as old formula
+const clv1 = calcCLV(-110, -130, null)
+assert(clv1 > 0, 'bet -110, close -130, no opposing → positive CLV (beat the line)')
+assert(Math.abs(clv1 - 4.14) < 0.01, `CLV (no opposing) = ~4.14% (got ${clv1.toFixed(2)})`)
 
-// Bet at -130, closes at -110 → line moved in your favour (negative CLV)
-const clv2 = calcCLV(-130, -110)
-assert(clv2 < 0, 'bet -130, close -110 → negative CLV (line moved favourably)')
+const clv2 = calcCLV(-130, -110, null)
+assert(clv2 < 0, 'bet -130, close -110, no opposing → negative CLV')
 
-// Identical odds → 0 CLV
-const clv3 = calcCLV(-110, -110)
-assert(Math.abs(clv3) < 0.001, 'same odds → 0 CLV')
+const clv3 = calcCLV(-110, -110, null)
+assert(Math.abs(clv3) < 0.001, 'same odds, no opposing → 0 CLV')
 
-// Positive American odds
-const clv4 = calcCLV(110, 100)  // bet +110, closes +100 → beat the line
-assert(clv4 > 0, 'bet +110, close +100 → positive CLV')
+const clv4 = calcCLV(110, 100, null)
+assert(clv4 > 0, 'bet +110, close +100, no opposing → positive CLV')
+
+// De-vig: Pinnacle -105/-105 market (even), bet both sides at +102
+// fair prob each side = 0.5122/(0.5122+0.5122) = 50.0%
+// CLV = (0.5000 - impliedProb(+102)) * 100 = (0.5000 - 0.4950) * 100 = +0.50%
+const clv5 = calcCLV(102, -105, -105)
+assert(clv5 > 0, 'de-vig: bet +102, close -105/-105 → positive CLV (+0.5%)')
+assert(Math.abs(clv5 - 0.50) < 0.02, `de-vig CLV ≈ +0.50% (got ${clv5.toFixed(2)})`)
+
+// De-vig: both sides of same arb are equally positive (not inflated by vig)
+const clvA = calcCLV(102, -105, -105)
+const clvB = calcCLV(102, -105, -105)
+assert(Math.abs(clvA - clvB) < 0.001, 'symmetric arb at even prices → equal CLV both sides')
+
+// De-vig: verify vig inflation is removed vs raw formula
+const clvRaw = calcCLV(102, -105, null)
+assert(clvRaw > clv5, 'raw formula inflates CLV vs de-vigged (Pinnacle vig removed)')
 
 // ── impliedProb sanity ────────────────────────────────────────────────────────
 
@@ -343,7 +362,15 @@ function findPropClosingOdds(event, propMarketKey, lastName, _firstInitial, dire
       if (!o.description) return false
       return normalize(o.description).includes(lastNameNorm)
     })
-    if (outcome) return { price: outcome.price, bookKey }
+    if (outcome) {
+      const opposingDirection = direction === 'over' ? 'under' : 'over'
+      const opposing = market.outcomes.find(o => {
+        if (o.name.toLowerCase() !== opposingDirection) return false
+        if (!o.description) return false
+        return normalize(o.description).includes(lastNameNorm)
+      })
+      return { price: outcome.price, opposingPrice: opposing?.price ?? null, bookKey }
+    }
   }
   return null
 }
@@ -388,10 +415,12 @@ const mockPropEvent = {
 const propRes1 = findPropClosingOdds(mockPropEvent, 'player_points', 'Doncic', 'L', 'over')
 assert(propRes1?.bookKey === 'pinnacle', 'Pinnacle preferred over DraftKings for Doncic Over')
 assert(propRes1?.price === -112, 'Doncic Over at Pinnacle = -112')
+assert(propRes1?.opposingPrice === -108, 'Doncic Over: opposing (Under) at Pinnacle = -108')
 
 // Under direction
 const propRes2 = findPropClosingOdds(mockPropEvent, 'player_points', 'Doncic', 'L', 'under')
 assert(propRes2?.price === -108, 'Doncic Under at Pinnacle = -108')
+assert(propRes2?.opposingPrice === -112, 'Doncic Under: opposing (Over) at Pinnacle = -112')
 
 // Davis only at DraftKings (Pinnacle doesn't have him)
 const propRes3 = findPropClosingOdds(mockPropEvent, 'player_points', 'Davis', 'A', 'over')

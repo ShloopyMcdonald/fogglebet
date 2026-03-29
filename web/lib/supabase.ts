@@ -24,6 +24,7 @@ export interface Bet {
   ev_percent: number | null
   arb_percent: number | null
   closing_odds: number | null
+  closing_book: string | null
   clv: number | null
   result: BetResult
   profit_loss: number | null

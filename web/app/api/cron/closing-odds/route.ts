@@ -105,11 +105,11 @@ export async function GET(req: NextRequest) {
         continue
       }
 
-      const clv = calcCLV(bet.odds, result.price)
+      const clv = calcCLV(bet.odds, result.price, result.opposingPrice)
 
       const { error: updateError } = await supabase
         .from('bets')
-        .update({ closing_odds: result.price, clv })
+        .update({ closing_odds: result.price, closing_book: result.bookKey, clv })
         .eq('id', bet.id)
 
       if (updateError) {
@@ -205,11 +205,11 @@ export async function GET(req: NextRequest) {
         continue
       }
 
-      const clv = calcCLV(bet.odds, result.price)
+      const clv = calcCLV(bet.odds, result.price, result.opposingPrice)
 
       const { error: updateError } = await supabase
         .from('bets')
-        .update({ closing_odds: result.price, clv })
+        .update({ closing_odds: result.price, closing_book: result.bookKey, clv })
         .eq('id', bet.id)
 
       if (updateError) {
