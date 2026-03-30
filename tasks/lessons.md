@@ -62,6 +62,14 @@ _Permanent log of bugs, corrections, and decisions. Updated after every user cor
 
 ---
 
+## Extension leg scraper must not rely on a[href] — international books have no href
+
+**Bug:** `scrapeRow` used `row.querySelectorAll('a[href]')` to find the two bet legs. BookMaker.eu (and potentially other international books) render as `<a>` without an `href` on PTO since there's no deep-link bet slip. This caused only 1 leg to be found, triggering the "< 2 legs" error on every BookMaker log attempt.
+
+**Fix:** Select `<a>` tags that contain a `div[aria-label]` (the book-name div), regardless of `href` presence. `Array.from(row.querySelectorAll('a')).filter(a => a.querySelector('div[aria-label]')).slice(0, 2)`.
+
+---
+
 ## Closing odds must match the exact spread/total line, not just team/direction
 
 **Bug:** `findOutcome` for Spread bets matched by team name only — `outcome.point` (the spread value) was parsed from `betLine` but never checked. For Totals, only the Over/Under direction was checked, not the total number. This meant a bet on "Warriors -3" could return closing odds for "Warriors -5".

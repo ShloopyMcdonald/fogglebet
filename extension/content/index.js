@@ -39,12 +39,16 @@ console.log('[FoggleBet] content script loaded', window.location.href)
       if (text.includes('$')) arbProfit = parseFloat(text.replace('$', '').trim())
     }
 
-    // Legs — each leg is an <a> tag
-    const legs = row.querySelectorAll('a[href]')
+    // Legs — each leg is an <a> tag containing a div[aria-label] (the book name).
+    // Some books (e.g. international ones like BookMaker.eu) have no href on their <a>,
+    // so we can't use a[href] — instead find any <a> that wraps a book-name div.
+    const legs = Array.from(row.querySelectorAll('a'))
+      .filter(a => a.querySelector('div[aria-label]'))
+      .slice(0, 2)
     if (legs.length < 2) warn(`expected 2 leg <a> tags, found ${legs.length}`)
 
     const legData = []
-    for (let i = 0; i < Math.min(legs.length, 2); i++) {
+    for (let i = 0; i < legs.length; i++) {
       const leg = legs[i]
 
       // Book name from div[aria-label] inside the <a>
