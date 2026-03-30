@@ -2,8 +2,8 @@ name: Capture Closing Odds
 
 on:
   schedule:
-    # Run every 5 minutes to catch game start windows
-    - cron: '*/5 * * * *'
+    # Run every minute to catch closing odds ~1 minute before game time
+    - cron: '* * * * *'
   # Allow manual trigger for testing
   workflow_dispatch:
 

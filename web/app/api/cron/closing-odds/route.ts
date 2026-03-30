@@ -32,10 +32,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'ODDS_API_KEY not configured' }, { status: 500 })
   }
 
-  // Fetch bets within ±10 minutes of game start with no closing odds yet
+  // Fetch bets whose game starts within the next 2 minutes (always before game time)
   const now = new Date()
-  const windowStart = new Date(now.getTime() - 10 * 60 * 1000).toISOString()
-  const windowEnd = new Date(now.getTime() + 10 * 60 * 1000).toISOString()
+  const windowStart = now.toISOString()
+  const windowEnd = new Date(now.getTime() + 2 * 60 * 1000).toISOString()
 
   const { data, error: fetchError } = await supabase
     .from('bets')
