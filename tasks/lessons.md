@@ -66,7 +66,7 @@ _Permanent log of bugs, corrections, and decisions. Updated after every user cor
 
 **Bug:** `scrapeRow` used `row.querySelectorAll('a[href]')` to find the two bet legs. BookMaker.eu (and potentially other international books) render as `<a>` without an `href` on PTO since there's no deep-link bet slip. This caused only 1 leg to be found, triggering the "< 2 legs" error on every BookMaker log attempt.
 
-**Fix:** Select `<a>` tags that contain a `div[aria-label]` (the book-name div), regardless of `href` presence. `Array.from(row.querySelectorAll('a')).filter(a => a.querySelector('div[aria-label]')).slice(0, 2)`.
+**Fix:** Find the two `div[aria-label]` book-name elements (excluding spread-value ones via `/[+-]\d/` filter) and walk 2 levels up to get the leg container. Works for both `<a href>` containers (US books) and plain `<div>` containers (BookMaker.eu). `Array.from(row.querySelectorAll('div[aria-label]')).filter(...).slice(0, 2).map(div => div.parentElement?.parentElement)`.
 
 ---
 

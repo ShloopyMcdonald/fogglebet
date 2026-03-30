@@ -39,13 +39,17 @@ console.log('[FoggleBet] content script loaded', window.location.href)
       if (text.includes('$')) arbProfit = parseFloat(text.replace('$', '').trim())
     }
 
-    // Legs — each leg is an <a> tag containing a div[aria-label] (the book name).
-    // Some books (e.g. international ones like BookMaker.eu) have no href on their <a>,
-    // so we can't use a[href] — instead find any <a> that wraps a book-name div.
-    const legs = Array.from(row.querySelectorAll('a'))
-      .filter(a => a.querySelector('div[aria-label]'))
+    // Legs — find each leg container by locating book-name div[aria-label]s and
+    // walking 2 levels up. This works for both US books (<a href> containers) and
+    // international books like BookMaker.eu (plain <div> containers with no <a> at all).
+    // Spread-value aria-labels like "CHI+32.5" are excluded via the /[+-]\d/ filter.
+    const bookDivs = Array.from(row.querySelectorAll('div[aria-label]'))
+      .filter(el => !/[+-]\d/.test(el.getAttribute('aria-label') ?? ''))
       .slice(0, 2)
-    if (legs.length < 2) warn(`expected 2 leg <a> tags, found ${legs.length}`)
+    const legs = bookDivs
+      .map(div => div.parentElement?.parentElement ?? null)
+      .filter(Boolean)
+    if (legs.length < 2) warn(`expected 2 leg containers, found ${legs.length}`)
 
     const legData = []
     for (let i = 0; i < legs.length; i++) {
