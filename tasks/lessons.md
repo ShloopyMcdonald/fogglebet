@@ -91,3 +91,11 @@ true_fav_prob = b0 / (1 + b0)
 **Why:** TKO accounts for the favourite-longshot bias — bookmakers apply more margin to longshots than favourites. Additive de-vig assumes margin is split equally, which is empirically wrong. TKO matches the probit-scale and odds-ratio methods that best fit real-world data.
 
 **Note:** The article text has a typo in the intermediate derivation step (numerator/denominator swapped). The final formula `b0 = log[p2/(1-p1)] / log[p1/(1-p2)]` is correct and consistent with the mathematical steps.
+
+---
+
+## Index-based fallback in book_odds lookup causes one-sided books to appear on both legs
+
+**Bug:** In `handleLogClick` and `postBets`, odds for a given book+leg were looked up as `sides[sideLabel] ?? sides[Object.keys(sides)[i]]`. If a book (e.g. ProphetX) only offered odds on one side (e.g. Under), the fallback assigned those Under odds to the Over leg (index 0) because `Object.keys(sides)[0]` was "Under".
+
+**Fix:** Remove the index-based fallback entirely. Use `sides[sideLabel] ?? null`. If a book has no odds for a side label, it simply won't appear for that leg.

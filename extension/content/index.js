@@ -663,7 +663,7 @@ console.log('[FoggleBet] content script loaded', window.location.href)
     // Enrich each leg's odds + liquidity from book_odds
     arbData.legs = arbData.legs.map((leg, i) => {
       const bookSides = arbData.book_odds[leg.book] ?? {}
-      const sideData = bookSides[leg.side_label] ?? bookSides[Object.keys(bookSides)[i]] ?? null
+      const sideData = bookSides[leg.side_label] ?? null
       return {
         ...leg,
         odds: sideData?.odds ?? leg.odds,
@@ -696,7 +696,7 @@ console.log('[FoggleBet] content script loaded', window.location.href)
       const legBookOdds = Object.fromEntries(
         Object.entries(fullOdds)
           .map(([book, sides]) => {
-            const sideData = sides[legSideLabel] ?? sides[Object.keys(sides)[i]] ?? null
+            const sideData = sides[legSideLabel] ?? null
             return sideData ? [book, { [legSideLabel]: sideData }] : null
           })
           .filter(Boolean)
