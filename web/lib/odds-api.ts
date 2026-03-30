@@ -69,7 +69,8 @@ const BET_MARKET_TO_ODDS_KEY: Record<string, string> = {
   Total:     'totals',
 }
 
-// Sharpest books in priority order (Odds API keys)
+// Books in priority order for closing odds reference (Odds API keys)
+// Sharp books first, soft books appended after
 const SHARP_BOOK_PRIORITY = [
   'pinnacle',
   'betonlineag',   // BetOnline.ag — sharp, takes action
@@ -79,6 +80,7 @@ const SHARP_BOOK_PRIORITY = [
   'caesars',
   'williamhill_us',
   'pointsbetus',
+  'bookmaker',     // BookMaker.eu — soft book
 ]
 
 // statType (from bet.market "Points - Doncic, L") → Odds API player prop market key
