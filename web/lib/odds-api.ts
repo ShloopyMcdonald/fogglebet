@@ -59,6 +59,10 @@ export const ODDS_API_SPORT_SLUGS: Record<string, string> = {
   NCAAF:                   'american-football',
   MLB:                     'baseball',
   NHL:                     'ice-hockey',
+  // Tennis
+  ATP:                     'tennis',
+  WTA:                     'tennis',
+  // Soccer
   MLS:                     'football',
   EPL:                     'football',
   'PREMIER LEAGUE':        'football',
