@@ -119,9 +119,19 @@ export const PROP_STAT_LABEL_MAP: Record<string, string> = {
   RBIs:              'RBIs',
   'Total Bases':     'Total Bases',
   Runs:              'Runs Scored',
+  // Baseball — pitcher props
+  // Label names verified against FanDuel via odds-api.io; update if live responses differ.
+  'Pitcher Strikeouts':   'Pitcher Strikeouts',
+  'Pitcher Allowed Hits': 'Hits Allowed',
+  'Pitcher Earned Runs':  'Earned Runs',
+  'Pitcher Walks':        'Walks',
+  'Pitcher Earned Outs':  'Outs Recorded',
+  'Pitcher Home Runs':    'Home Runs Allowed',
   // Hockey
   Goals:             'Goals',
   Shots:             'Shots on Goal',
+  'Shots on Goal':   'Shots on Goal',   // picktheodds may use either "Shots" or "Shots on Goal"
+  'Blocked Shots':   'Blocked Shots',
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -334,6 +344,8 @@ export function parsePropMarketStr(
 // ── Main: find closing odds for a bet ─────────────────────────────────────────
 
 function isFeaturedMarket(market: string): boolean {
+  // Player props always contain " - " (e.g. "Total Bases - Soto, J"); exclude them first.
+  if (market.includes(' - ')) return false
   return market === 'Moneyline' || market === 'Spread' || market === 'Total' || market.startsWith('Total ')
 }
 
