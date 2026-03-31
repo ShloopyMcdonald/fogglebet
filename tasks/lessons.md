@@ -4,6 +4,14 @@ _Permanent log of bugs, corrections, and decisions. Updated after every user cor
 
 ---
 
+## isFeaturedMarket misclassified "Total Bases" and other "Total *" player props
+
+**Bug:** `isFeaturedMarket` used `market.startsWith('Total ')` to detect game totals. This matched player prop markets like `"Total Bases - Soto, J"`, routing them to the game-totals handler which returned null. Every Total Bases bet had null CLV.
+
+**Fix:** Check `market.includes(' - ')` first — player props always contain this delimiter, game totals never do.
+
+---
+
 ## ESPN tennis API has a completely different structure from team sports
 
 **Bug:** ATP/WTA were in `ESPN_SPORT_MAP` but tennis results all stayed `pending` because the results cron assumed the team-sport scoreboard structure.
