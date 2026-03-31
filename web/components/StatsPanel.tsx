@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import type { Bet, BetResult } from '@/lib/supabase'
 import { supabase } from '@/lib/supabase'
 
@@ -41,6 +41,8 @@ function niceTicks(min: number, max: number): number[] {
 }
 
 function PLChart({ bets }: { bets: Bet[] }) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [tooltip, setTooltip] = useState<{ book: string; color: string; x: number; y: number } | null>(null)
   const settled = bets.filter(b => b.result !== 'pending')
 
   if (settled.length === 0) {
@@ -104,8 +106,14 @@ function PLChart({ bets }: { bets: Bet[] }) {
       ? [minTime]
       : Array.from({ length: xTickCount }, (_, i) => minTime + (i / (xTickCount - 1)) * timeRange)
 
+  const handleLineMouseMove = (e: React.MouseEvent, book: string, color: string) => {
+    if (!containerRef.current) return
+    const rect = containerRef.current.getBoundingClientRect()
+    setTooltip({ book, color, x: e.clientX - rect.left, y: e.clientY - rect.top })
+  }
+
   return (
-    <div>
+    <div ref={containerRef} style={{ position: 'relative' }}>
       {/* Legend */}
       <div className="flex flex-wrap gap-x-5 gap-y-2 mb-5">
         {series.map(({ book, total }, i) => {
@@ -191,13 +199,15 @@ function PLChart({ bets }: { bets: Bet[] }) {
 
           if (points.length === 1) {
             return (
-              <circle
+              <g
                 key={book}
-                cx={xP(points[0].time)}
-                cy={yP(points[0].cumPL)}
-                r={4}
-                fill={color}
-              />
+                onMouseMove={(e) => handleLineMouseMove(e, book, color)}
+                onMouseLeave={() => setTooltip(null)}
+                style={{ cursor: 'crosshair' }}
+              >
+                <circle cx={xP(points[0].time)} cy={yP(points[0].cumPL)} r={10} fill="transparent" />
+                <circle cx={xP(points[0].time)} cy={yP(points[0].cumPL)} r={4} fill={color} />
+              </g>
             )
           }
 
@@ -206,7 +216,14 @@ function PLChart({ bets }: { bets: Bet[] }) {
             .join(' ')
 
           return (
-            <g key={book}>
+            <g
+              key={book}
+              onMouseMove={(e) => handleLineMouseMove(e, book, color)}
+              onMouseLeave={() => setTooltip(null)}
+              style={{ cursor: 'crosshair' }}
+            >
+              {/* Wider transparent hit area */}
+              <path d={d} fill="none" stroke="transparent" strokeWidth={14} />
               <path
                 d={d}
                 fill="none"
@@ -222,6 +239,28 @@ function PLChart({ bets }: { bets: Bet[] }) {
           )
         })}
       </svg>
+
+      {tooltip && (
+        <div
+          style={{
+            position: 'absolute',
+            left: tooltip.x + 14,
+            top: tooltip.y - 28,
+            background: '#18181b',
+            border: `1px solid ${tooltip.color}`,
+            borderRadius: 4,
+            padding: '3px 8px',
+            color: tooltip.color,
+            fontSize: 11,
+            fontFamily: 'var(--font-geist-mono, monospace)',
+            pointerEvents: 'none',
+            whiteSpace: 'nowrap',
+            zIndex: 10,
+          }}
+        >
+          {tooltip.book}
+        </div>
+      )}
     </div>
   )
 }
