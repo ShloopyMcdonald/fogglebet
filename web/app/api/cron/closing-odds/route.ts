@@ -2,19 +2,16 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabase, Bet } from '@/lib/supabase'
 import { parseTeamsFromBetName } from '@/lib/espn'
 import {
-  ODDS_API_SPORT_MAP,
-  PROP_MARKET_KEY_MAP,
-  fetchOdds,
-  fetchEventOdds,
-  findClosingOdds,
-  findPropClosingOdds,
+  ODDS_API_SPORT_SLUGS,
+  SHARP_BOOK_PRIORITY,
+  fetchEvents,
+  fetchEventOddsById,
   findEvent,
-  parsePropMarketStr,
+  findClosingOdds,
   calcCLV,
-  OddsEvent,
+  OddsApiEvent,
+  OddsApiOddsResponse,
 } from '@/lib/odds-api'
-
-const FEATURED_MARKETS = new Set(['Moneyline', 'Spread', 'Total'])
 
 export async function GET(req: NextRequest) {
   // Auth: Vercel or GitHub Actions sends Authorization: Bearer {CRON_SECRET}
@@ -57,48 +54,84 @@ export async function GET(req: NextRequest) {
 
   console.log(`[closing-odds-cron] Found ${bets.length} bets in window`)
 
-  function toOddsSportKey(sport: string): string | null {
-    return ODDS_API_SPORT_MAP[sport.toUpperCase().replace(/\s*\([^)]*\)\s*$/, '').trim()] ?? null
+  function toOddsSlug(sport: string): string | null {
+    return ODDS_API_SPORT_SLUGS[sport.toUpperCase().replace(/\s*\([^)]*\)\s*$/, '').trim()] ?? null
   }
 
-  // Group featured-market bets by sport key to minimize Odds API calls
-  const bySport = new Map<string, Bet[]>()
+  // Time window for /events: cover ±2h around now to catch all games starting soon
+  const eventsFrom = new Date(now.getTime() - 2 * 60 * 60 * 1000).toISOString()
+  const eventsTo = new Date(now.getTime() + 2 * 60 * 60 * 1000).toISOString()
+
+  // Group all bets (featured + props) by sport slug
+  const bySlug = new Map<string, Bet[]>()
   for (const bet of bets) {
     if (!bet.sport || !bet.market) continue
-    if (!FEATURED_MARKETS.has(bet.market)) continue   // props handled separately
-
-    const oddsKey = toOddsSportKey(bet.sport)
-    if (!oddsKey) {
-      console.warn(`[closing-odds-cron] No Odds API key for sport: "${bet.sport}" (bet ${bet.id})`)
+    const slug = toOddsSlug(bet.sport)
+    if (!slug) {
+      console.warn(`[closing-odds-cron] No odds-api slug for sport: "${bet.sport}" (bet ${bet.id})`)
       continue
     }
-    const group = bySport.get(oddsKey) ?? []
+    const group = bySlug.get(slug) ?? []
     group.push(bet)
-    bySport.set(oddsKey, group)
+    bySlug.set(slug, group)
   }
 
-  // Cache fetched events per sport key
-  const oddsCache = new Map<string, OddsEvent[]>()
+  // Cache events per sport slug; cache full odds per event ID
+  const eventsCache = new Map<string, OddsApiEvent[]>()
+  const oddsCache = new Map<string, OddsApiOddsResponse>()
 
   let captured = 0
   const failedIds: string[] = []
 
-  for (const [sportKey, sportBets] of bySport) {
-    // Fetch odds for this sport (cached)
-    if (!oddsCache.has(sportKey)) {
+  for (const [slug, slugBets] of bySlug) {
+    if (!eventsCache.has(slug)) {
       try {
-        const events = await fetchOdds(sportKey, apiKey)
-        oddsCache.set(sportKey, events)
-        console.log(`[closing-odds-cron] Fetched ${events.length} events for ${sportKey}`)
+        const events = await fetchEvents(slug, eventsFrom, eventsTo, apiKey)
+        eventsCache.set(slug, events)
+        console.log(`[closing-odds-cron] Fetched ${events.length} events for ${slug}`)
       } catch (err) {
-        console.error(`[closing-odds-cron] fetchOdds failed for ${sportKey}:`, err)
+        console.error(`[closing-odds-cron] fetchEvents failed for ${slug}:`, err)
+        for (const b of slugBets) failedIds.push(b.id)
         continue
       }
     }
-    const events = oddsCache.get(sportKey)!
+    const events = eventsCache.get(slug)!
 
-    for (const bet of sportBets) {
-      const result = findClosingOdds(events, bet)
+    for (const bet of slugBets) {
+      if (!bet.line) {
+        console.warn(`[closing-odds-cron] No line on bet ${bet.id}`)
+        failedIds.push(bet.id)
+        continue
+      }
+
+      const teams = parseTeamsFromBetName(bet.bet_name)
+      if (!teams) {
+        console.warn(`[closing-odds-cron] Cannot parse teams from: "${bet.bet_name}"`)
+        failedIds.push(bet.id)
+        continue
+      }
+
+      const event = findEvent(events, teams[0], teams[1])
+      if (!event) {
+        console.warn(`[closing-odds-cron] No event match for "${bet.bet_name}"`)
+        failedIds.push(bet.id)
+        continue
+      }
+
+      // Fetch full odds for this event — cached so two bets on the same game share one call
+      if (!oddsCache.has(event.id)) {
+        try {
+          const oddsResp = await fetchEventOddsById(event.id, SHARP_BOOK_PRIORITY, apiKey)
+          oddsCache.set(event.id, oddsResp)
+        } catch (err) {
+          console.error(`[closing-odds-cron] fetchEventOddsById failed for ${event.id}:`, err)
+          failedIds.push(bet.id)
+          continue
+        }
+      }
+      const oddsResp = oddsCache.get(event.id)!
+
+      const result = findClosingOdds(oddsResp, bet)
       if (!result) {
         console.warn(`[closing-odds-cron] No closing odds found for bet ${bet.id}`)
         failedIds.push(bet.id)
@@ -118,107 +151,6 @@ export async function GET(req: NextRequest) {
       } else {
         console.log(
           `[closing-odds-cron] Captured closing odds for bet ${bet.id}: ` +
-          `${result.price} (via ${result.bookKey}), CLV: ${clv.toFixed(2)}%`
-        )
-        captured++
-      }
-    }
-  }
-
-  // ── Prop bets second pass ────────────────────────────────────────────────────
-  const propBets = bets.filter(b => b.market && !FEATURED_MARKETS.has(b.market))
-
-  if (propBets.length > 0) {
-    console.log(`[closing-odds-cron] Processing ${propBets.length} prop bets`)
-    // Cache: "sportKey/eventId/marketKey" → OddsEvent (one credit each)
-    const propOddsCache = new Map<string, OddsEvent>()
-
-    for (const bet of propBets) {
-      if (!bet.sport || !bet.market || !bet.line) continue
-
-      const sportKey = toOddsSportKey(bet.sport)
-      if (!sportKey) {
-        console.warn(`[closing-odds-cron] No Odds API key for sport: "${bet.sport}" (bet ${bet.id})`)
-        continue
-      }
-
-      const parsed = parsePropMarketStr(bet.market)
-      if (!parsed) {
-        console.warn(`[closing-odds-cron] Cannot parse prop market: "${bet.market}" (bet ${bet.id})`)
-        failedIds.push(bet.id)
-        continue
-      }
-
-      const propMarketKey = PROP_MARKET_KEY_MAP[parsed.statType]
-      if (!propMarketKey) {
-        console.warn(`[closing-odds-cron] Unsupported prop stat type: "${parsed.statType}" (bet ${bet.id})`)
-        continue
-      }
-
-      // Need the bulk events to look up the eventId
-      if (!oddsCache.has(sportKey)) {
-        try {
-          const events = await fetchOdds(sportKey, apiKey)
-          oddsCache.set(sportKey, events)
-          console.log(`[closing-odds-cron] Fetched ${events.length} events for ${sportKey}`)
-        } catch (err) {
-          console.error(`[closing-odds-cron] fetchOdds failed for ${sportKey}:`, err)
-          failedIds.push(bet.id)
-          continue
-        }
-      }
-      const bulkEvents = oddsCache.get(sportKey)!
-
-      const teams = parseTeamsFromBetName(bet.bet_name)
-      const matchedEvent = teams ? findEvent(bulkEvents, teams[0], teams[1]) : null
-      if (!matchedEvent) {
-        console.warn(`[closing-odds-cron] No event match for prop bet ${bet.id} ("${bet.bet_name}")`)
-        failedIds.push(bet.id)
-        continue
-      }
-
-      const dirMatch = bet.line.match(/^(Over|Under)\s+([\d.]+)/i)
-      if (!dirMatch) {
-        console.warn(`[closing-odds-cron] Cannot parse direction/value from line: "${bet.line}" (bet ${bet.id})`)
-        failedIds.push(bet.id)
-        continue
-      }
-      const direction = dirMatch[1].toLowerCase()
-      const lineValue = parseFloat(dirMatch[2])
-
-      const cacheKey = `${sportKey}/${matchedEvent.id}/${propMarketKey}`
-      if (!propOddsCache.has(cacheKey)) {
-        try {
-          const propEvent = await fetchEventOdds(sportKey, matchedEvent.id, propMarketKey, apiKey)
-          propOddsCache.set(cacheKey, propEvent)
-        } catch (err) {
-          console.error(`[closing-odds-cron] fetchEventOdds failed for ${cacheKey}:`, err)
-          failedIds.push(bet.id)
-          continue
-        }
-      }
-      const propEvent = propOddsCache.get(cacheKey)!
-
-      const result = findPropClosingOdds(propEvent, propMarketKey, parsed.lastName, parsed.firstInitial, direction, lineValue)
-      if (!result) {
-        console.warn(`[closing-odds-cron] No prop closing odds for bet ${bet.id}`)
-        failedIds.push(bet.id)
-        continue
-      }
-
-      const clv = calcCLV(bet.odds, result.price, result.opposingPrice)
-
-      const { error: updateError } = await supabase
-        .from('bets')
-        .update({ closing_odds: result.price, closing_book: result.bookKey, clv })
-        .eq('id', bet.id)
-
-      if (updateError) {
-        console.error(`[closing-odds-cron] Update failed for bet ${bet.id}:`, updateError)
-        failedIds.push(bet.id)
-      } else {
-        console.log(
-          `[closing-odds-cron] Captured prop closing odds for bet ${bet.id}: ` +
           `${result.price} (via ${result.bookKey}), CLV: ${clv.toFixed(2)}%`
         )
         captured++

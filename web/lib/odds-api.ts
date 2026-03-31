@@ -1,120 +1,129 @@
 import { Bet } from './supabase'
-import { parseTeamsFromBetName } from './espn'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export interface OddsOutcome {
-  name: string         // team name, "Over", or "Under"
-  price: number        // American odds
-  point?: number       // spread or total value
-  description?: string // player full name for prop markets (e.g. "Luka Doncic")
+export interface OddsApiOdds {
+  home?: number
+  away?: number
+  draw?: number
+  over?: number
+  under?: number
+  hdp?: number
+  label?: string  // player name for prop markets
 }
 
-export interface OddsMarket {
-  key: string           // "h2h" | "spreads" | "totals"
-  outcomes: OddsOutcome[]
+export interface OddsApiMarket {
+  name: string   // "ML", "Spread", "Totals", "Player Props - Points", etc.
+  updatedAt: string
+  odds: OddsApiOdds[]
 }
 
-export interface OddsBookmaker {
-  key: string           // "draftkings", "fanduel", etc.
-  markets: OddsMarket[]
+export interface OddsApiBookmakerEntry {
+  name: string   // "Pinnacle", "DraftKings", etc.
+  markets: OddsApiMarket[]
 }
 
-export interface OddsEvent {
+export interface OddsApiEvent {
   id: string
-  sport_key: string
-  commence_time: string // ISO UTC
-  home_team: string
-  away_team: string
-  bookmakers: OddsBookmaker[]
+  home: string
+  away: string
+  date: string   // ISO UTC
+  status: string
+  sport: { name: string; slug: string }
+  league: { name: string; slug: string }
+}
+
+export interface OddsApiOddsResponse extends OddsApiEvent {
+  bookmakers: OddsApiBookmakerEntry[]
+}
+
+export interface ClosingOddsResult {
+  price: number
+  opposingPrice: number | null
+  bookKey: string
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-// picktheodds sport name → The Odds API sport key
-export const ODDS_API_SPORT_MAP: Record<string, string> = {
-  NBA:                     'basketball_nba',
-  NCAAB:                   'basketball_ncaab',
-  WNBA:                    'basketball_wnba',
-  NFL:                     'americanfootball_nfl',
-  NCAAF:                   'americanfootball_ncaaf',
-  MLB:                     'baseball_mlb',
-  NHL:                     'icehockey_nhl',
-  MLS:                     'soccer_usa_mls',
-  EPL:                     'soccer_epl',
-  'PREMIER LEAGUE':        'soccer_epl',
-  LALIGA:                  'soccer_spain_la_liga',
-  'LA LIGA':               'soccer_spain_la_liga',
-  BUNDESLIGA:              'soccer_germany_bundesliga',
-  'SERIE A':               'soccer_italy_serie_a',
-  'LIGUE 1':               'soccer_france_ligue_1',
-  UCL:                     'soccer_uefa_champs_league',
-  'CHAMPIONS LEAGUE':      'soccer_uefa_champs_league',
-  'UEFA CHAMPIONS LEAGUE': 'soccer_uefa_champs_league',
-  UEL:                     'soccer_uefa_europa_league',
-  'EUROPA LEAGUE':         'soccer_uefa_europa_league',
+const ODDS_API_IO_BASE = 'https://api.odds-api.io/v3'
+
+// picktheodds sport name → odds-api.io sport slug
+export const ODDS_API_SPORT_SLUGS: Record<string, string> = {
+  NBA:                     'basketball',
+  NCAAB:                   'basketball',
+  WNBA:                    'basketball',
+  NFL:                     'americanfootball',
+  NCAAF:                   'americanfootball',
+  MLB:                     'baseball',
+  NHL:                     'icehockey',
+  MLS:                     'football',
+  EPL:                     'football',
+  'PREMIER LEAGUE':        'football',
+  LALIGA:                  'football',
+  'LA LIGA':               'football',
+  BUNDESLIGA:              'football',
+  'SERIE A':               'football',
+  'LIGUE 1':               'football',
+  UCL:                     'football',
+  'CHAMPIONS LEAGUE':      'football',
+  'UEFA CHAMPIONS LEAGUE': 'football',
+  UEL:                     'football',
+  'EUROPA LEAGUE':         'football',
 }
 
-// Markets we support: Odds API key → our market name
-const MARKET_KEY_MAP: Record<string, string> = {
-  h2h:     'Moneyline',
-  spreads: 'Spread',
-  totals:  'Total',
-}
-
-// Reverse: our market name → Odds API key
-const BET_MARKET_TO_ODDS_KEY: Record<string, string> = {
-  Moneyline: 'h2h',
-  Spread:    'spreads',
-  Total:     'totals',
-}
-
-// Books in priority order for closing odds reference (Odds API keys)
-// Sharp books first, soft books appended after
-const SHARP_BOOK_PRIORITY = [
-  'pinnacle',
-  'betonlineag',   // BetOnline.ag — sharp, takes action
-  'fanduel',
-  'draftkings',
-  'betmgm',
-  'caesars',
-  'williamhill_us',
-  'pointsbetus',
-  'bookmaker',     // BookMaker.eu — soft book
+// Books to request and prioritize for closing odds (sharp first).
+// NOTE: Exact names must be verified against GET /v3/bookmakers once the API key is active.
+export const SHARP_BOOK_PRIORITY = [
+  'Pinnacle',
+  'BetOnline',
+  'FanDuel',
+  'DraftKings',
+  'BetMGM',
+  'Caesars',
+  'PointsBet',
+  'BookMaker',
 ]
 
-// statType (from bet.market "Points - Doncic, L") → Odds API player prop market key
-export const PROP_MARKET_KEY_MAP: Record<string, string> = {
-  // Basketball
-  Points:            'player_points',
-  Rebounds:          'player_rebounds',
-  Assists:           'player_assists',
-  Blocks:            'player_blocks',
-  Steals:            'player_steals',
-  Turnovers:         'player_turnovers',
-  '3-Pointers Made': 'player_threes',
-  // Football
-  'Pass Yards':      'player_pass_yds',
-  'Pass TDs':        'player_pass_tds',
-  Interceptions:     'player_pass_interceptions',
-  'Rush Yards':      'player_rush_yds',
-  'Rushing TDs':     'player_rush_tds',
-  'Receiving Yards': 'player_reception_yds',
-  Receptions:        'player_receptions',
-  'Receiving TDs':   'player_reception_tds',
-  // Baseball (picktheodds context: Strikeouts = pitcher)
-  Strikeouts:        'pitcher_strikeouts',
-  Hits:              'batter_hits',
-  'Home Runs':       'batter_home_runs',
-  RBIs:              'batter_rbis',
-  'Total Bases':     'batter_total_bases',
-  Runs:              'batter_runs_scored',
-  // Hockey
-  Goals:             'player_goals',
-  Shots:             'player_shots_on_goal',
+// Our internal market name → odds-api.io market name string.
+// NOTE: Verify "ML" / "Spread" / "Totals" against a live /odds response.
+const MARKET_NAME_MAP: Record<string, string> = {
+  Moneyline: 'ML',
+  Spread:    'Spread',
+  Total:     'Totals',
 }
 
-const ODDS_API_BASE = 'https://api.the-odds-api.com/v4/sports'
+// picktheodds stat type → odds-api.io "Player Props - {suffix}" market name suffix.
+// NOTE: Verify exact suffix strings against a live /odds response for prop markets.
+export const PROP_STAT_TO_MARKET_NAME: Record<string, string> = {
+  // Basketball
+  Points:            'Points',
+  Rebounds:          'Rebounds',
+  Assists:           'Assists',
+  Blocks:            'Blocks',
+  Steals:            'Steals',
+  Turnovers:         'Turnovers',
+  '3-Pointers Made': '3-Pointers',
+  '3PT':             '3-Pointers',
+  // Football
+  'Pass Yards':      'Passing Yards',
+  'Pass TDs':        'Passing Touchdowns',
+  Interceptions:     'Passing Interceptions',
+  'Rush Yards':      'Rushing Yards',
+  'Rushing TDs':     'Rushing Touchdowns',
+  'Receiving Yards': 'Receiving Yards',
+  Receptions:        'Receptions',
+  'Receiving TDs':   'Receiving Touchdowns',
+  // Baseball
+  Strikeouts:        'Strikeouts',
+  Hits:              'Hits',
+  'Home Runs':       'Home Runs',
+  RBIs:              'RBIs',
+  'Total Bases':     'Total Bases',
+  Runs:              'Runs Scored',
+  // Hockey
+  Goals:             'Goals',
+  Shots:             'Shots on Goal',
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -128,58 +137,194 @@ function teamMatchesName(keyword: string, teamName: string): boolean {
   return tn === kw || tn.includes(kw) || kw.includes(tn)
 }
 
+// Decimal odds (e.g. 1.91) → American odds (e.g. -110)
+function decimalToAmerican(decimal: number): number {
+  if (decimal >= 2.0) return Math.round((decimal - 1) * 100)
+  return Math.round(-100 / (decimal - 1))
+}
+
+// Parse "Warriors -3" → { teamKeyword: "Warriors", spread: -3 }
+function parseSpreadLine(line: string): { teamKeyword: string; spread: number } | null {
+  const m = line.match(/^(.+?)\s*([+-]\d+\.?\d*)$/)
+  if (!m) return null
+  const spread = parseFloat(m[2])
+  if (isNaN(spread)) return null
+  return { teamKeyword: m[1].trim(), spread }
+}
+
 // ── API Fetching ──────────────────────────────────────────────────────────────
 
-export async function fetchOdds(sportKey: string, apiKey: string): Promise<OddsEvent[]> {
-  // regions=us only: cost = 3 credits (1 per market). us,us2,eu would be 9.
-  const url =
-    `${ODDS_API_BASE}/${sportKey}/odds` +
-    `?apiKey=${apiKey}` +
-    `&regions=us` +
-    `&markets=h2h,spreads,totals` +
-    `&oddsFormat=american`
-
-  const res = await fetch(url, { cache: 'no-store' })
-  // Log quota usage from response headers
-  const remaining = res.headers.get('x-requests-remaining')
-  const used = res.headers.get('x-requests-used')
-  const cost = res.headers.get('x-requests-last')
-  console.log(`[odds-api] ${sportKey} quota — cost: ${cost}, used: ${used}, remaining: ${remaining}`)
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(`[odds-api] fetchOdds ${sportKey} failed ${res.status}: ${text}`)
-  }
-  return res.json() as Promise<OddsEvent[]>
-}
-
-// Fetches odds for a single event — required for player prop markets
-// Returns the event with bookmakers populated for the requested market only
-export async function fetchEventOdds(
-  sportKey: string,
-  eventId: string,
-  marketKey: string,
+// Returns events for a sport within a time window. Used to resolve team names → event IDs.
+export async function fetchEvents(
+  sportSlug: string,
+  from: string,
+  to: string,
   apiKey: string
-): Promise<OddsEvent> {
-  const url =
-    `${ODDS_API_BASE}/${sportKey}/events/${eventId}/odds` +
-    `?apiKey=${apiKey}` +
-    `&regions=us` +
-    `&markets=${marketKey}` +
-    `&oddsFormat=american`
-
-  const res = await fetch(url, { cache: 'no-store' })
-  const remaining = res.headers.get('x-requests-remaining')
-  const used = res.headers.get('x-requests-used')
-  const cost = res.headers.get('x-requests-last')
-  console.log(`[odds-api] event-odds ${eventId}/${marketKey} quota — cost: ${cost}, used: ${used}, remaining: ${remaining}`)
+): Promise<OddsApiEvent[]> {
+  const params = new URLSearchParams({
+    apiKey,
+    sport: sportSlug,
+    from,
+    to,
+    status: 'pending,live',
+    limit: '100',
+  })
+  const res = await fetch(`${ODDS_API_IO_BASE}/events?${params}`, { cache: 'no-store' })
   if (!res.ok) {
     const text = await res.text()
-    throw new Error(`[odds-api] fetchEventOdds ${eventId}/${marketKey} failed ${res.status}: ${text}`)
+    throw new Error(`[odds-api] fetchEvents ${sportSlug} failed ${res.status}: ${text}`)
   }
-  return res.json() as Promise<OddsEvent>
+  return res.json() as Promise<OddsApiEvent[]>
 }
 
-// ── Player Prop Helpers ───────────────────────────────────────────────────────
+// Returns full odds (all markets) for a single event from the specified bookmakers.
+export async function fetchEventOddsById(
+  eventId: string,
+  bookmakers: string[],
+  apiKey: string
+): Promise<OddsApiOddsResponse> {
+  const params = new URLSearchParams({
+    apiKey,
+    eventId,
+    bookmakers: bookmakers.join(','),
+  })
+  const res = await fetch(`${ODDS_API_IO_BASE}/odds?${params}`, { cache: 'no-store' })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`[odds-api] fetchEventOddsById ${eventId} failed ${res.status}: ${text}`)
+  }
+  return res.json() as Promise<OddsApiOddsResponse>
+}
+
+// ── Event Matching ────────────────────────────────────────────────────────────
+
+export function findEvent(events: OddsApiEvent[], team1: string, team2: string): OddsApiEvent | null {
+  for (const ev of events) {
+    const hasTeam1 = teamMatchesName(team1, ev.home) || teamMatchesName(team1, ev.away)
+    const hasTeam2 = teamMatchesName(team2, ev.home) || teamMatchesName(team2, ev.away)
+    if (hasTeam1 && hasTeam2) return ev
+  }
+  return null
+}
+
+// ── Outcome Extraction ────────────────────────────────────────────────────────
+
+function extractMoneylineOdds(
+  event: OddsApiOddsResponse,
+  odds: OddsApiOdds,
+  betLine: string
+): { price: number; opposingPrice: number | null } | null {
+  if (betLine.toLowerCase() === 'draw') {
+    if (odds.draw == null) return null
+    return { price: decimalToAmerican(odds.draw), opposingPrice: null }
+  }
+  const isHome = teamMatchesName(betLine, event.home)
+  const isAway = teamMatchesName(betLine, event.away)
+  if (isHome && odds.home != null) {
+    return {
+      price: decimalToAmerican(odds.home),
+      opposingPrice: odds.away != null ? decimalToAmerican(odds.away) : null,
+    }
+  }
+  if (isAway && odds.away != null) {
+    return {
+      price: decimalToAmerican(odds.away),
+      opposingPrice: odds.home != null ? decimalToAmerican(odds.home) : null,
+    }
+  }
+  return null
+}
+
+function extractSpreadOdds(
+  event: OddsApiOddsResponse,
+  oddsArr: OddsApiOdds[],
+  betLine: string
+): { price: number; opposingPrice: number | null } | null {
+  const parsed = parseSpreadLine(betLine)
+  if (!parsed) return null
+
+  const betIsHome = teamMatchesName(parsed.teamKeyword, event.home)
+  const betIsAway = teamMatchesName(parsed.teamKeyword, event.away)
+  if (!betIsHome && !betIsAway) return null
+
+  // hdp = home team's handicap (e.g. -3 means home is -3 favorite).
+  // If bet is on home at -3: targetHdp = -3, our price = entry.home.
+  // If bet is on away at +3: home's hdp = -3, so targetHdp = -parsed.spread = -3, our price = entry.away.
+  const targetHdp = betIsHome ? parsed.spread : -parsed.spread
+  const entry = oddsArr.find(o => o.hdp != null && Math.abs(o.hdp - targetHdp) < 0.1)
+  if (!entry) return null
+
+  const ourPrice = betIsHome ? entry.home : entry.away
+  const opposingPrice = betIsHome ? entry.away : entry.home
+  if (ourPrice == null) return null
+
+  return {
+    price: decimalToAmerican(ourPrice),
+    opposingPrice: opposingPrice != null ? decimalToAmerican(opposingPrice) : null,
+  }
+}
+
+function extractTotalOdds(
+  oddsArr: OddsApiOdds[],
+  betLine: string
+): { price: number; opposingPrice: number | null } | null {
+  const m = betLine.match(/^(Over|Under)\s+([\d.]+)/i)
+  if (!m) return null
+  const direction = m[1].toLowerCase()
+  const totalValue = parseFloat(m[2])
+
+  const entry = oddsArr.find(o => o.hdp != null && Math.abs(o.hdp - totalValue) < 0.1)
+  if (!entry) return null
+
+  if (direction === 'over' && entry.over != null) {
+    return {
+      price: decimalToAmerican(entry.over),
+      opposingPrice: entry.under != null ? decimalToAmerican(entry.under) : null,
+    }
+  }
+  if (direction === 'under' && entry.under != null) {
+    return {
+      price: decimalToAmerican(entry.under),
+      opposingPrice: entry.over != null ? decimalToAmerican(entry.over) : null,
+    }
+  }
+  return null
+}
+
+function extractPropOdds(
+  oddsArr: OddsApiOdds[],
+  lastName: string,
+  betLine: string
+): { price: number; opposingPrice: number | null } | null {
+  const m = betLine.match(/^(Over|Under)\s+([\d.]+)/i)
+  if (!m) return null
+  const direction = m[1].toLowerCase()
+  const lineValue = parseFloat(m[2])
+  const lastNameNorm = normalize(lastName)
+
+  const entry = oddsArr.find(o => {
+    if (!o.label) return false
+    if (o.hdp == null || Math.abs(o.hdp - lineValue) >= 0.1) return false
+    return normalize(o.label).includes(lastNameNorm)
+  })
+  if (!entry) return null
+
+  if (direction === 'over' && entry.over != null) {
+    return {
+      price: decimalToAmerican(entry.over),
+      opposingPrice: entry.under != null ? decimalToAmerican(entry.under) : null,
+    }
+  }
+  if (direction === 'under' && entry.under != null) {
+    return {
+      price: decimalToAmerican(entry.under),
+      opposingPrice: entry.over != null ? decimalToAmerican(entry.over) : null,
+    }
+  }
+  return null
+}
+
+// ── Player Prop Market Parsing ────────────────────────────────────────────────
 
 // "Points - Doncic, L" → { statType: "Points", lastName: "Doncic", firstInitial: "L" }
 export function parsePropMarketStr(
@@ -200,178 +345,74 @@ export function parsePropMarketStr(
   }
 }
 
-// Match prop outcome: direction (over/under) + player lastName in description
-export function findPropClosingOdds(
-  event: OddsEvent,
-  propMarketKey: string,
-  lastName: string,
-  _firstInitial: string,
-  direction: string,  // "over" or "under" (lowercased)
-  lineValue: number   // exact prop line, e.g. 24.5 — must match outcome.point
-): ClosingOddsResult | null {
-  const lastNameNorm = normalize(lastName)
-
-  const bookmakerOrder = [
-    ...SHARP_BOOK_PRIORITY,
-    ...event.bookmakers
-      .map(b => b.key)
-      .filter(k => !SHARP_BOOK_PRIORITY.includes(k)),
-  ]
-
-  for (const bookKey of bookmakerOrder) {
-    const bookmaker = event.bookmakers.find(b => b.key === bookKey)
-    if (!bookmaker) continue
-
-    const market = bookmaker.markets.find(m => m.key === propMarketKey)
-    if (!market) continue
-
-    const outcome = market.outcomes.find(o => {
-      if (o.name.toLowerCase() !== direction) return false
-      if (!o.description) return false
-      if (o.point == null || Math.abs(o.point - lineValue) >= 0.1) return false
-      return normalize(o.description).includes(lastNameNorm)
-    })
-
-    if (outcome) {
-      const opposingDirection = direction === 'over' ? 'under' : 'over'
-      const opposing = market.outcomes.find(o => {
-        if (o.name.toLowerCase() !== opposingDirection) return false
-        if (!o.description) return false
-        if (o.point == null || Math.abs(o.point - lineValue) >= 0.1) return false
-        return normalize(o.description).includes(lastNameNorm)
-      })
-      return { price: outcome.price, opposingPrice: opposing?.price ?? null, bookKey }
-    }
-  }
-
-  console.warn(
-    `[odds-api] No prop outcome found: ${propMarketKey} / ${direction} / ${lastName}`
-  )
-  return null
-}
-
-// ── Event Matching ────────────────────────────────────────────────────────────
-
-export function findEvent(events: OddsEvent[], team1: string, team2: string): OddsEvent | null {
-  for (const ev of events) {
-    const hasTeam1 = teamMatchesName(team1, ev.home_team) || teamMatchesName(team1, ev.away_team)
-    const hasTeam2 = teamMatchesName(team2, ev.home_team) || teamMatchesName(team2, ev.away_team)
-    if (hasTeam1 && hasTeam2) return ev
-  }
-  return null
-}
-
-// ── Outcome Matching ──────────────────────────────────────────────────────────
-
-// Parse "Warriors -3" → { teamKeyword: "Warriors", spread: -3 }
-function parseSpreadLine(line: string): { teamKeyword: string; spread: number } | null {
-  const m = line.match(/^(.+?)\s*([+-]\d+\.?\d*)$/)
-  if (!m) return null
-  const spread = parseFloat(m[2])
-  if (isNaN(spread)) return null
-  return { teamKeyword: m[1].trim(), spread }
-}
-
-function findOutcome(
-  market: OddsMarket,
-  betMarket: string,
-  betLine: string
-): OddsOutcome | null {
-  if (betMarket === 'Moneyline') {
-    // betLine = team name or "Draw"
-    return (
-      market.outcomes.find(o => teamMatchesName(betLine, o.name)) ?? null
-    )
-  }
-
-  if (betMarket === 'Spread') {
-    // betLine = "Warriors -3" — must match both team and exact spread point
-    const parsed = parseSpreadLine(betLine)
-    if (!parsed) return null
-    return (
-      market.outcomes.find(o =>
-        teamMatchesName(parsed.teamKeyword, o.name) &&
-        o.point != null && Math.abs(o.point - parsed.spread) < 0.1
-      ) ?? null
-    )
-  }
-
-  if (betMarket === 'Total') {
-    // betLine = "Over 200.5" or "Under 180.5" — must match both direction and exact total
-    const m = betLine.match(/^(Over|Under)\s+([\d.]+)/i)
-    if (!m) return null
-    const direction = m[1].toLowerCase()
-    const total = parseFloat(m[2])
-    return (
-      market.outcomes.find(o =>
-        o.name.toLowerCase() === direction &&
-        o.point != null && Math.abs(o.point - total) < 0.1
-      ) ?? null
-    )
-  }
-
-  return null
-}
-
 // ── Main: find closing odds for a bet ─────────────────────────────────────────
 
-export interface ClosingOddsResult {
-  price: number              // American odds at closing (our side)
-  opposingPrice: number | null  // opposing outcome's odds (same book) — used for de-vig
-  bookKey: string            // which bookmaker was used
+function extractOddsFromBookmaker(
+  event: OddsApiOddsResponse,
+  bm: OddsApiBookmakerEntry,
+  bet: Bet
+): { price: number; opposingPrice: number | null } | null {
+  const market = bet.market!
+  const line = bet.line!
+
+  if (market === 'Moneyline') {
+    const mkt = bm.markets.find(m => m.name === MARKET_NAME_MAP['Moneyline'])
+    if (!mkt || mkt.odds.length === 0) return null
+    return extractMoneylineOdds(event, mkt.odds[0], line)
+  }
+
+  if (market === 'Spread') {
+    const mkt = bm.markets.find(m => m.name === MARKET_NAME_MAP['Spread'])
+    if (!mkt) return null
+    return extractSpreadOdds(event, mkt.odds, line)
+  }
+
+  if (market === 'Total' || market.startsWith('Total ')) {
+    const mkt = bm.markets.find(m => m.name === MARKET_NAME_MAP['Total'])
+    if (!mkt) return null
+    return extractTotalOdds(mkt.odds, line)
+  }
+
+  // Player prop: e.g. "Points - Doncic, L"
+  const parsed = parsePropMarketStr(market)
+  if (parsed) {
+    const suffix = PROP_STAT_TO_MARKET_NAME[parsed.statType]
+    if (!suffix) return null
+    const mkt = bm.markets.find(m => m.name === `Player Props - ${suffix}`)
+    if (!mkt) return null
+    return extractPropOdds(mkt.odds, parsed.lastName, line)
+  }
+
+  return null
 }
 
 export function findClosingOdds(
-  events: OddsEvent[],
+  oddsResp: OddsApiOddsResponse,
   bet: Bet
 ): ClosingOddsResult | null {
-  const marketOddsKey = BET_MARKET_TO_ODDS_KEY[bet.market ?? '']
-  if (!marketOddsKey) {
-    // Player props and unknown markets skipped for now
+  if (!bet.market || !bet.line) {
+    console.warn(`[odds-api] Bet ${bet.id} missing market or line`)
     return null
   }
 
-  const teams = parseTeamsFromBetName(bet.bet_name)
-  if (!teams) {
-    console.warn(`[odds-api] Cannot parse teams from: "${bet.bet_name}"`)
-    return null
-  }
-
-  const event = findEvent(events, teams[0], teams[1])
-  if (!event) {
-    console.warn(`[odds-api] No event match for "${bet.bet_name}"`)
-    return null
-  }
-
-  if (!bet.line) {
-    console.warn(`[odds-api] No line on bet ${bet.id}`)
-    return null
-  }
-
-  // Try sharp books first, then any available bookmaker
-  const bookmakerOrder = [
+  // Try sharp books first, then any remaining bookmakers in the response
+  const bookOrder = [
     ...SHARP_BOOK_PRIORITY,
-    ...event.bookmakers
-      .map(b => b.key)
-      .filter(k => !SHARP_BOOK_PRIORITY.includes(k)),
+    ...oddsResp.bookmakers
+      .map(b => b.name)
+      .filter(n => !SHARP_BOOK_PRIORITY.includes(n)),
   ]
 
-  for (const bookKey of bookmakerOrder) {
-    const bookmaker = event.bookmakers.find(b => b.key === bookKey)
-    if (!bookmaker) continue
+  for (const bookName of bookOrder) {
+    const bm = oddsResp.bookmakers.find(b => b.name === bookName)
+    if (!bm) continue
 
-    const market = bookmaker.markets.find(m => m.key === marketOddsKey)
-    if (!market) continue
-
-    const outcome = findOutcome(market, bet.market!, bet.line)
-    if (outcome) {
-      const opposing = market.outcomes.find(o => o !== outcome)
-      return { price: outcome.price, opposingPrice: opposing?.price ?? null, bookKey }
-    }
+    const result = extractOddsFromBookmaker(oddsResp, bm, bet)
+    if (result) return { ...result, bookKey: bookName }
   }
 
   console.warn(
-    `[odds-api] No matching outcome for bet ${bet.id} (${bet.market} / ${bet.line})`
+    `[odds-api] No closing odds found for bet ${bet.id} (${bet.market} / ${bet.line})`
   )
   return null
 }
@@ -405,8 +446,7 @@ function deVigTKO(pA: number, pB: number): number {
   return aIsFav ? trueFav : 1 - trueFav
 }
 
-// Positive CLV = you beat the closing line (good)
-// Negative CLV = line moved against you
+// Positive CLV = you beat the closing line (good).
 // When opposingClosingOdds is provided, de-vigs the closing line (TKO method)
 // so both sides of an arb don't both appear as positive CLV.
 export function calcCLV(
@@ -422,7 +462,3 @@ export function calcCLV(
   }
   return (closingP - impliedProb(betOdds)) * 100
 }
-
-// ── Export market key map for use in route ────────────────────────────────────
-export { MARKET_KEY_MAP }
-
