@@ -4,6 +4,16 @@ _Permanent log of bugs, corrections, and decisions. Updated after every user cor
 
 ---
 
+## ESPN tennis API has a completely different structure from team sports
+
+**Bug:** ATP/WTA were in `ESPN_SPORT_MAP` but tennis results all stayed `pending` because the results cron assumed the team-sport scoreboard structure.
+
+**Root cause:** ESPN tennis scoreboard returns **tournament** objects in `events[]`, not individual matches. Each match is nested under `event.groupings[].competitions[]`. Competitors use `competitor.athlete.displayName` (not `competitor.team.displayName`) and results are determined by `competitor.winner: boolean` (no `score` string exists).
+
+**Fix:** Added `fetchTennisMatches()` to flatten tournament → groupings → competitions, `findTennisMatch()` to match by athlete name, and `determineTennisResult()` using the `winner` boolean. Results cron branches on `mapping.sport === 'tennis'` to use this path.
+
+---
+
 ## Spread bet odds are swapped when two arb books differ in side order
 
 **Bug:** `scrapeBookOdds` mapped `btn[sideIdx]` → `sideLabels[sideIdx]`, where `sideLabels` came from leg display order. But the expanded table's buttons are in game-team order (team listed first in the game header = btn[0]), which often differs from leg order.
