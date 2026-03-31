@@ -3,38 +3,41 @@ import { Bet } from './supabase'
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface OddsApiOdds {
-  home?: number
-  away?: number
-  draw?: number
-  over?: number
-  under?: number
   hdp?: number
-  label?: string  // player name for prop markets
+  home?: string    // decimal odds as string, e.g. "1.91" or "N/A"
+  away?: string
+  draw?: string
+  over?: string
+  under?: string
+  label?: string   // player + stat type, e.g. "Paolo Banchero (Points)"
 }
 
 export interface OddsApiMarket {
-  name: string   // "ML", "Spread", "Totals", "Player Props - Points", etc.
+  name: string     // "ML", "Spread", "Totals", "Player Props"
   updatedAt: string
   odds: OddsApiOdds[]
 }
 
-export interface OddsApiBookmakerEntry {
-  name: string   // "Pinnacle", "DraftKings", etc.
-  markets: OddsApiMarket[]
-}
-
-export interface OddsApiEvent {
-  id: string
+// bookmakers is a dict keyed by bookmaker name, NOT an array
+export interface OddsApiOddsResponse {
+  id: number
   home: string
   away: string
-  date: string   // ISO UTC
+  date: string
   status: string
   sport: { name: string; slug: string }
   league: { name: string; slug: string }
+  bookmakers: Record<string, OddsApiMarket[]>
 }
 
-export interface OddsApiOddsResponse extends OddsApiEvent {
-  bookmakers: OddsApiBookmakerEntry[]
+export interface OddsApiEvent {
+  id: number
+  home: string
+  away: string
+  date: string
+  status: string
+  sport: { name: string; slug: string }
+  league: { name: string; slug: string }
 }
 
 export interface ClosingOddsResult {
@@ -71,30 +74,17 @@ export const ODDS_API_SPORT_SLUGS: Record<string, string> = {
   'EUROPA LEAGUE':         'football',
 }
 
-// Books to request and prioritize for closing odds (sharp first).
-// NOTE: Exact names must be verified against GET /v3/bookmakers once the API key is active.
-export const SHARP_BOOK_PRIORITY = [
-  'Pinnacle',
-  'BetOnline',
-  'FanDuel',
-  'DraftKings',
-  'BetMGM',
-  'Caesars',
-  'PointsBet',
-  'BookMaker',
-]
+// Priority order for featured markets (ML / Spread / Totals).
+// Circa is the sharpest available, then BetOnline.ag, then FanDuel as fallback.
+export const SHARP_BOOK_PRIORITY = ['Circa', 'BetOnline.ag', 'FanDuel']
 
-// Our internal market name → odds-api.io market name string.
-// NOTE: Verify "ML" / "Spread" / "Totals" against a live /odds response.
-const MARKET_NAME_MAP: Record<string, string> = {
-  Moneyline: 'ML',
-  Spread:    'Spread',
-  Total:     'Totals',
-}
+// Player prop closing odds are always sourced from FanDuel (best prop coverage).
+const PROP_BOOK = 'FanDuel'
 
-// picktheodds stat type → odds-api.io "Player Props - {suffix}" market name suffix.
-// NOTE: Verify exact suffix strings against a live /odds response for prop markets.
-export const PROP_STAT_TO_MARKET_NAME: Record<string, string> = {
+// picktheodds stat type → string that appears in the odds-api.io label parentheses,
+// e.g. "Points - Doncic, L" → statType "Points" → label contains "(Points)".
+// Verify these against live /odds responses if new stat types appear.
+export const PROP_STAT_LABEL_MAP: Record<string, string> = {
   // Basketball
   Points:            'Points',
   Rebounds:          'Rebounds',
@@ -102,8 +92,8 @@ export const PROP_STAT_TO_MARKET_NAME: Record<string, string> = {
   Blocks:            'Blocks',
   Steals:            'Steals',
   Turnovers:         'Turnovers',
-  '3-Pointers Made': '3-Pointers',
-  '3PT':             '3-Pointers',
+  '3-Pointers Made': '3 Point FG',
+  '3PT':             '3 Point FG',
   // Football
   'Pass Yards':      'Passing Yards',
   'Pass TDs':        'Passing Touchdowns',
@@ -137,7 +127,14 @@ function teamMatchesName(keyword: string, teamName: string): boolean {
   return tn === kw || tn.includes(kw) || kw.includes(tn)
 }
 
-// Decimal odds (e.g. 1.91) → American odds (e.g. -110)
+// Parse odds string (e.g. "1.91") → number, returns null for "N/A" or invalid.
+function parseDecimalOdds(val: string | undefined): number | null {
+  if (!val || val === 'N/A') return null
+  const n = parseFloat(val)
+  return isNaN(n) ? null : n
+}
+
+// Decimal odds → American odds
 function decimalToAmerican(decimal: number): number {
   if (decimal >= 2.0) return Math.round((decimal - 1) * 100)
   return Math.round(-100 / (decimal - 1))
@@ -179,13 +176,13 @@ export async function fetchEvents(
 
 // Returns full odds (all markets) for a single event from the specified bookmakers.
 export async function fetchEventOddsById(
-  eventId: string,
+  eventId: number,
   bookmakers: string[],
   apiKey: string
 ): Promise<OddsApiOddsResponse> {
   const params = new URLSearchParams({
     apiKey,
-    eventId,
+    eventId: String(eventId),
     bookmakers: bookmakers.join(','),
   })
   const res = await fetch(`${ODDS_API_IO_BASE}/odds?${params}`, { cache: 'no-store' })
@@ -215,24 +212,18 @@ function extractMoneylineOdds(
   betLine: string
 ): { price: number; opposingPrice: number | null } | null {
   if (betLine.toLowerCase() === 'draw') {
-    if (odds.draw == null) return null
-    return { price: decimalToAmerican(odds.draw), opposingPrice: null }
+    const p = parseDecimalOdds(odds.draw)
+    if (p == null) return null
+    return { price: decimalToAmerican(p), opposingPrice: null }
   }
   const isHome = teamMatchesName(betLine, event.home)
   const isAway = teamMatchesName(betLine, event.away)
-  if (isHome && odds.home != null) {
-    return {
-      price: decimalToAmerican(odds.home),
-      opposingPrice: odds.away != null ? decimalToAmerican(odds.away) : null,
-    }
-  }
-  if (isAway && odds.away != null) {
-    return {
-      price: decimalToAmerican(odds.away),
-      opposingPrice: odds.home != null ? decimalToAmerican(odds.home) : null,
-    }
-  }
-  return null
+  const ourVal = isHome ? odds.home : isAway ? odds.away : null
+  const oppVal = isHome ? odds.away : isAway ? odds.home : null
+  const ourP = parseDecimalOdds(ourVal ?? undefined)
+  if (ourP == null) return null
+  const oppP = parseDecimalOdds(oppVal ?? undefined)
+  return { price: decimalToAmerican(ourP), opposingPrice: oppP != null ? decimalToAmerican(oppP) : null }
 }
 
 function extractSpreadOdds(
@@ -247,21 +238,17 @@ function extractSpreadOdds(
   const betIsAway = teamMatchesName(parsed.teamKeyword, event.away)
   if (!betIsHome && !betIsAway) return null
 
-  // hdp = home team's handicap (e.g. -3 means home is -3 favorite).
-  // If bet is on home at -3: targetHdp = -3, our price = entry.home.
-  // If bet is on away at +3: home's hdp = -3, so targetHdp = -parsed.spread = -3, our price = entry.away.
+  // hdp = home team's handicap (e.g. -2 means home is -2 favorite).
+  // If bet is on home at -2: targetHdp = -2, price = entry.home.
+  // If bet is on away at +2: home's hdp = -2, targetHdp = -parsed.spread = -2, price = entry.away.
   const targetHdp = betIsHome ? parsed.spread : -parsed.spread
   const entry = oddsArr.find(o => o.hdp != null && Math.abs(o.hdp - targetHdp) < 0.1)
   if (!entry) return null
 
-  const ourPrice = betIsHome ? entry.home : entry.away
-  const opposingPrice = betIsHome ? entry.away : entry.home
-  if (ourPrice == null) return null
-
-  return {
-    price: decimalToAmerican(ourPrice),
-    opposingPrice: opposingPrice != null ? decimalToAmerican(opposingPrice) : null,
-  }
+  const ourP = parseDecimalOdds(betIsHome ? entry.home : entry.away)
+  const oppP = parseDecimalOdds(betIsHome ? entry.away : entry.home)
+  if (ourP == null) return null
+  return { price: decimalToAmerican(ourP), opposingPrice: oppP != null ? decimalToAmerican(oppP) : null }
 }
 
 function extractTotalOdds(
@@ -276,24 +263,17 @@ function extractTotalOdds(
   const entry = oddsArr.find(o => o.hdp != null && Math.abs(o.hdp - totalValue) < 0.1)
   if (!entry) return null
 
-  if (direction === 'over' && entry.over != null) {
-    return {
-      price: decimalToAmerican(entry.over),
-      opposingPrice: entry.under != null ? decimalToAmerican(entry.under) : null,
-    }
-  }
-  if (direction === 'under' && entry.under != null) {
-    return {
-      price: decimalToAmerican(entry.under),
-      opposingPrice: entry.over != null ? decimalToAmerican(entry.over) : null,
-    }
-  }
-  return null
+  const ourP = parseDecimalOdds(direction === 'over' ? entry.over : entry.under)
+  const oppP = parseDecimalOdds(direction === 'over' ? entry.under : entry.over)
+  if (ourP == null) return null
+  return { price: decimalToAmerican(ourP), opposingPrice: oppP != null ? decimalToAmerican(oppP) : null }
 }
 
+// Props label format: "Paolo Banchero (Points)" — match by lastName + stat type in parens.
 function extractPropOdds(
   oddsArr: OddsApiOdds[],
   lastName: string,
+  statLabelStr: string,  // e.g. "Points" (the parentheses content to match)
   betLine: string
 ): { price: number; opposingPrice: number | null } | null {
   const m = betLine.match(/^(Over|Under)\s+([\d.]+)/i)
@@ -301,27 +281,24 @@ function extractPropOdds(
   const direction = m[1].toLowerCase()
   const lineValue = parseFloat(m[2])
   const lastNameNorm = normalize(lastName)
+  const statNorm = normalize(statLabelStr)
 
   const entry = oddsArr.find(o => {
     if (!o.label) return false
     if (o.hdp == null || Math.abs(o.hdp - lineValue) >= 0.1) return false
-    return normalize(o.label).includes(lastNameNorm)
+    const labelNorm = normalize(o.label)
+    // Label format: "firstname lastname (stat type)" — check lastName and stat type
+    const parenMatch = o.label.match(/\(([^)]+)\)$/)
+    if (!parenMatch) return false
+    const labelStat = normalize(parenMatch[1])
+    return labelNorm.includes(lastNameNorm) && labelStat === statNorm
   })
   if (!entry) return null
 
-  if (direction === 'over' && entry.over != null) {
-    return {
-      price: decimalToAmerican(entry.over),
-      opposingPrice: entry.under != null ? decimalToAmerican(entry.under) : null,
-    }
-  }
-  if (direction === 'under' && entry.under != null) {
-    return {
-      price: decimalToAmerican(entry.under),
-      opposingPrice: entry.over != null ? decimalToAmerican(entry.over) : null,
-    }
-  }
-  return null
+  const ourP = parseDecimalOdds(direction === 'over' ? entry.over : entry.under)
+  const oppP = parseDecimalOdds(direction === 'over' ? entry.under : entry.over)
+  if (ourP == null) return null
+  return { price: decimalToAmerican(ourP), opposingPrice: oppP != null ? decimalToAmerican(oppP) : null }
 }
 
 // ── Player Prop Market Parsing ────────────────────────────────────────────────
@@ -347,40 +324,34 @@ export function parsePropMarketStr(
 
 // ── Main: find closing odds for a bet ─────────────────────────────────────────
 
-function extractOddsFromBookmaker(
+function isFeaturedMarket(market: string): boolean {
+  return market === 'Moneyline' || market === 'Spread' || market === 'Total' || market.startsWith('Total ')
+}
+
+function extractFeaturedOddsFromBookmaker(
   event: OddsApiOddsResponse,
-  bm: OddsApiBookmakerEntry,
+  markets: OddsApiMarket[],
   bet: Bet
 ): { price: number; opposingPrice: number | null } | null {
   const market = bet.market!
   const line = bet.line!
 
   if (market === 'Moneyline') {
-    const mkt = bm.markets.find(m => m.name === MARKET_NAME_MAP['Moneyline'])
+    const mkt = markets.find(m => m.name === 'ML')
     if (!mkt || mkt.odds.length === 0) return null
     return extractMoneylineOdds(event, mkt.odds[0], line)
   }
 
   if (market === 'Spread') {
-    const mkt = bm.markets.find(m => m.name === MARKET_NAME_MAP['Spread'])
+    const mkt = markets.find(m => m.name === 'Spread')
     if (!mkt) return null
     return extractSpreadOdds(event, mkt.odds, line)
   }
 
   if (market === 'Total' || market.startsWith('Total ')) {
-    const mkt = bm.markets.find(m => m.name === MARKET_NAME_MAP['Total'])
+    const mkt = markets.find(m => m.name === 'Totals')
     if (!mkt) return null
     return extractTotalOdds(mkt.odds, line)
-  }
-
-  // Player prop: e.g. "Points - Doncic, L"
-  const parsed = parsePropMarketStr(market)
-  if (parsed) {
-    const suffix = PROP_STAT_TO_MARKET_NAME[parsed.statType]
-    if (!suffix) return null
-    const mkt = bm.markets.find(m => m.name === `Player Props - ${suffix}`)
-    if (!mkt) return null
-    return extractPropOdds(mkt.odds, parsed.lastName, line)
   }
 
   return null
@@ -395,19 +366,41 @@ export function findClosingOdds(
     return null
   }
 
-  // Try sharp books first, then any remaining bookmakers in the response
+  // ── Player props: always use FanDuel ────────────────────────────────────────
+  if (!isFeaturedMarket(bet.market)) {
+    const parsed = parsePropMarketStr(bet.market)
+    if (!parsed) {
+      console.warn(`[odds-api] Cannot parse prop market: "${bet.market}" (bet ${bet.id})`)
+      return null
+    }
+    const statLabel = PROP_STAT_LABEL_MAP[parsed.statType]
+    if (!statLabel) {
+      console.warn(`[odds-api] Unsupported prop stat type: "${parsed.statType}" (bet ${bet.id})`)
+      return null
+    }
+    const bmMarkets = oddsResp.bookmakers[PROP_BOOK]
+    if (!bmMarkets) {
+      console.warn(`[odds-api] ${PROP_BOOK} not in odds response for bet ${bet.id}`)
+      return null
+    }
+    const propMkt = bmMarkets.find(m => m.name === 'Player Props')
+    if (!propMkt) return null
+    const result = extractPropOdds(propMkt.odds, parsed.lastName, statLabel, bet.line)
+    if (!result) return null
+    return { ...result, bookKey: PROP_BOOK }
+  }
+
+  // ── Featured markets: Circa → BetOnline.ag → FanDuel ────────────────────────
   const bookOrder = [
     ...SHARP_BOOK_PRIORITY,
-    ...oddsResp.bookmakers
-      .map(b => b.name)
-      .filter(n => !SHARP_BOOK_PRIORITY.includes(n)),
+    ...Object.keys(oddsResp.bookmakers).filter(n => !SHARP_BOOK_PRIORITY.includes(n)),
   ]
 
   for (const bookName of bookOrder) {
-    const bm = oddsResp.bookmakers.find(b => b.name === bookName)
-    if (!bm) continue
+    const bmMarkets = oddsResp.bookmakers[bookName]
+    if (!bmMarkets) continue
 
-    const result = extractOddsFromBookmaker(oddsResp, bm, bet)
+    const result = extractFeaturedOddsFromBookmaker(oddsResp, bmMarkets, bet)
     if (result) return { ...result, bookKey: bookName }
   }
 

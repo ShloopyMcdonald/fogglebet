@@ -78,7 +78,7 @@ export async function GET(req: NextRequest) {
 
   // Cache events per sport slug; cache full odds per event ID
   const eventsCache = new Map<string, OddsApiEvent[]>()
-  const oddsCache = new Map<string, OddsApiOddsResponse>()
+  const oddsCache = new Map<number, OddsApiOddsResponse>()
 
   let captured = 0
   const failedIds: string[] = []
