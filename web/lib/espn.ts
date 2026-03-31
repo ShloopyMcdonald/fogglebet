@@ -62,6 +62,50 @@ export interface EspnSummary {
 
 export type BetOutcome = 'win' | 'loss' | 'push'
 
+// ── Tennis Types ──────────────────────────────────────────────────────────────
+// ESPN tennis scoreboard has a completely different structure from team sports:
+// - top-level events[] are tournaments, not matches
+// - matches are nested under event.groupings[].competitions[]
+// - competitors use athlete.displayName (not team.displayName)
+// - result is competitor.winner boolean (not a score string)
+
+interface EspnTennisAthlete {
+  displayName: string
+  shortName: string
+}
+
+interface EspnTennisCompetitor {
+  homeAway: 'home' | 'away'
+  winner: boolean
+  athlete: EspnTennisAthlete
+}
+
+interface EspnTennisStatus {
+  type: { name: string; completed: boolean; state: string }
+}
+
+export interface EspnTennisMatch {
+  id: string
+  date: string
+  status: EspnTennisStatus
+  competitors: EspnTennisCompetitor[]
+}
+
+interface EspnTennisTournamentEvent {
+  groupings?: Array<{
+    competitions?: Array<{
+      id: string
+      date: string
+      status: EspnTennisStatus
+      competitors: EspnTennisCompetitor[]
+    }>
+  }>
+}
+
+interface EspnTennisScoreboard {
+  events?: EspnTennisTournamentEvent[]
+}
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 export const ESPN_SPORT_MAP: Record<string, { sport: string; league: string }> = {
@@ -556,6 +600,89 @@ export function determineResult(
   }
 
   console.warn(`[espn] Unknown market: ${market} for bet ${bet.id}`)
+  return null
+}
+
+// ── Tennis ────────────────────────────────────────────────────────────────────
+
+function athleteMatches(athlete: EspnTennisAthlete, keyword: string): boolean {
+  const kw = normalize(keyword)
+  if (!kw) return false
+  const dn = normalize(athlete.displayName)
+  const sn = normalize(athlete.shortName)
+  return dn === kw || dn.includes(kw) || kw.includes(dn) || sn === kw || sn.includes(kw)
+}
+
+// Flattens ESPN tennis scoreboard (tournaments → groupings → competitions)
+// into a flat list of individual matches for two date windows.
+export async function fetchTennisMatches(
+  league: string,
+  gameTimeUtc: string
+): Promise<EspnTennisMatch[]> {
+  const dateStr = toEtDateStr(gameTimeUtc)
+  const prev = prevDateStr(dateStr)
+  const urls = [
+    `${ESPN_BASE}/tennis/${league}/scoreboard?dates=${dateStr}&limit=100`,
+    `${ESPN_BASE}/tennis/${league}/scoreboard?dates=${prev}&limit=100`,
+  ]
+
+  const results = await Promise.all(
+    urls.map(url =>
+      fetch(url, { cache: 'no-store' })
+        .then(r => r.json() as Promise<EspnTennisScoreboard>)
+        .catch(err => { console.warn('[espn] tennis scoreboard fetch failed:', url, err); return {} as EspnTennisScoreboard })
+    )
+  )
+
+  const seen = new Set<string>()
+  const matches: EspnTennisMatch[] = []
+  for (const res of results) {
+    for (const tournament of res.events ?? []) {
+      for (const grouping of tournament.groupings ?? []) {
+        for (const comp of grouping.competitions ?? []) {
+          if (!seen.has(comp.id)) {
+            seen.add(comp.id)
+            matches.push({ id: comp.id, date: comp.date, status: comp.status, competitors: comp.competitors })
+          }
+        }
+      }
+    }
+  }
+  return matches
+}
+
+export function findTennisMatch(
+  matches: EspnTennisMatch[],
+  player1: string,
+  player2: string
+): EspnTennisMatch | null {
+  for (const match of matches) {
+    if (match.competitors.length < 2) continue
+    const hasP1 = match.competitors.some(c => athleteMatches(c.athlete, player1))
+    const hasP2 = match.competitors.some(c => athleteMatches(c.athlete, player2))
+    if (hasP1 && hasP2) return match
+  }
+  return null
+}
+
+export function determineTennisResult(bet: Bet, match: EspnTennisMatch): BetOutcome | null {
+  if (!match.status.type.completed) return null
+
+  const market = bet.market ?? ''
+  const line = bet.line ?? ''
+  if (!line) return null
+
+  // Tennis Moneyline: line = player name (e.g. "Djokovic", "Tabur")
+  if (market === 'Moneyline') {
+    const betComp = match.competitors.find(c => athleteMatches(c.athlete, line))
+    if (!betComp) {
+      console.warn(`[espn] Tennis: player not found for line "${line}" in bet ${bet.id}`)
+      return null
+    }
+    return betComp.winner ? 'win' : 'loss'
+  }
+
+  console.warn(`[espn] Tennis market not yet supported: "${market}" for bet ${bet.id}`)
   return null
 }
 

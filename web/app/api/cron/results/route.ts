@@ -4,11 +4,15 @@ import {
   ESPN_SPORT_MAP,
   EspnGame,
   EspnSummary,
+  EspnTennisMatch,
   fetchScoreboard,
   fetchGameSummary,
+  fetchTennisMatches,
   parseTeamsFromBetName,
   findGame,
+  findTennisMatch,
   determineResult,
+  determineTennisResult,
   calcProfitLoss,
   toEtDateStr,
 } from '@/lib/espn'
@@ -52,6 +56,8 @@ export async function GET(req: NextRequest) {
 
   // Cache scoreboards by "sport/league/etDate" to avoid duplicate ESPN fetches
   const scoreboardCache = new Map<string, EspnGame[]>()
+  // Cache tennis matches by "tennis/league/etDate"
+  const tennisMatchCache = new Map<string, EspnTennisMatch[]>()
   // Cache game summaries by ESPN game ID
   const summaryCache = new Map<string, EspnSummary>()
 
@@ -69,45 +75,63 @@ export async function GET(req: NextRequest) {
       continue
     }
 
-    // Fetch ESPN scoreboard, cached per sport+date
     const etDate = toEtDateStr(bet.game_time)
-    const scoreboardKey = `${sportKey}/${mapping.league}/${etDate}`
-    if (!scoreboardCache.has(scoreboardKey)) {
-      const games = await fetchScoreboard(mapping.sport, mapping.league, bet.game_time)
-      scoreboardCache.set(scoreboardKey, games)
-      console.log(`[results-cron] Fetched ${games.length} ${bet.sport} games for ${etDate}`)
-    }
-    const games = scoreboardCache.get(scoreboardKey)!
 
-    // Parse teams from bet_name ("team1 vs team2 — market — sideLabel")
+    // Parse players/teams from bet_name ("player1 vs player2 — market — sideLabel")
     const teams = parseTeamsFromBetName(bet.bet_name)
     if (!teams) {
       console.warn(`[results-cron] Cannot parse teams from: "${bet.bet_name}"`)
       continue
     }
 
-    // Match to ESPN game
-    const game = findGame(games, teams[0], teams[1])
-    if (!game) {
-      console.warn(
-        `[results-cron] No ESPN game match for "${bet.bet_name}" (${bet.sport} ${etDate})`
-      )
-      continue
-    }
+    let result: ReturnType<typeof determineResult>
 
-    // Fetch box score summary for player prop bets
-    let summary: EspnSummary | null = null
-    if (isPlayerPropMarket(bet.market ?? '')) {
-      if (!summaryCache.has(game.id)) {
-        const s = await fetchGameSummary(mapping.sport, mapping.league, game.id)
-        summaryCache.set(game.id, s)
+    if (mapping.sport === 'tennis') {
+      // ── Tennis path: flatten tournament → groupings → competitions ─────────
+      const tennisKey = `tennis/${mapping.league}/${etDate}`
+      if (!tennisMatchCache.has(tennisKey)) {
+        const matches = await fetchTennisMatches(mapping.league, bet.game_time)
+        tennisMatchCache.set(tennisKey, matches)
+        console.log(`[results-cron] Fetched ${matches.length} ${bet.sport} matches for ${etDate}`)
       }
-      summary = summaryCache.get(game.id) ?? null
+      const matches = tennisMatchCache.get(tennisKey)!
+
+      const match = findTennisMatch(matches, teams[0], teams[1])
+      if (!match) {
+        console.warn(`[results-cron] No ESPN match for "${bet.bet_name}" (${bet.sport} ${etDate})`)
+        continue
+      }
+      result = determineTennisResult(bet, match)
+    } else {
+      // ── Team-sport path ────────────────────────────────────────────────────
+      const scoreboardKey = `${sportKey}/${mapping.league}/${etDate}`
+      if (!scoreboardCache.has(scoreboardKey)) {
+        const games = await fetchScoreboard(mapping.sport, mapping.league, bet.game_time)
+        scoreboardCache.set(scoreboardKey, games)
+        console.log(`[results-cron] Fetched ${games.length} ${bet.sport} games for ${etDate}`)
+      }
+      const games = scoreboardCache.get(scoreboardKey)!
+
+      const game = findGame(games, teams[0], teams[1])
+      if (!game) {
+        console.warn(`[results-cron] No ESPN game match for "${bet.bet_name}" (${bet.sport} ${etDate})`)
+        continue
+      }
+
+      // Fetch box score summary for player prop bets
+      let summary: EspnSummary | null = null
+      if (isPlayerPropMarket(bet.market ?? '')) {
+        if (!summaryCache.has(game.id)) {
+          const s = await fetchGameSummary(mapping.sport, mapping.league, game.id)
+          summaryCache.set(game.id, s)
+        }
+        summary = summaryCache.get(game.id) ?? null
+      }
+
+      result = determineResult(bet, game, summary)
     }
 
-    // Determine win/loss/push
-    const result = determineResult(bet, game, summary)
-    if (!result) continue // game not final yet, or unresolvable
+    if (!result) continue // match not final yet, or unresolvable
 
     // P&L only applies to bets the user actually placed
     const profit_loss = bet.is_taken
