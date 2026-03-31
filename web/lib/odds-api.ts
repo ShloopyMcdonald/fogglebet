@@ -85,7 +85,7 @@ const PROP_BOOK = 'FanDuel'
 // e.g. "Points - Doncic, L" → statType "Points" → label contains "(Points)".
 // Verify these against live /odds responses if new stat types appear.
 export const PROP_STAT_LABEL_MAP: Record<string, string> = {
-  // Basketball
+  // Basketball — singles
   Points:            'Points',
   Rebounds:          'Rebounds',
   Assists:           'Assists',
@@ -94,6 +94,11 @@ export const PROP_STAT_LABEL_MAP: Record<string, string> = {
   Turnovers:         'Turnovers',
   '3-Pointers Made': '3 Point FG',
   '3PT':             '3 Point FG',
+  // Basketball — combos (picktheodds format: "Pts + Ast + Reb")
+  'Pts + Ast + Reb':  'Pts+Rebs+Asts',
+  'Pts + Ast':        'Pts+Asts',
+  'Pts + Reb':        'Pts+Rebs',
+  'Reb + Ast':        'Rebs+Asts',
   // Football
   'Pass Yards':      'Passing Yards',
   'Pass TDs':        'Passing Touchdowns',
