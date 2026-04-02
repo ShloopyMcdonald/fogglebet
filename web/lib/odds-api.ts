@@ -52,13 +52,21 @@ const ODDS_API_IO_BASE = 'https://api.odds-api.io/v3'
 
 // picktheodds sport name → odds-api.io sport slug
 export const ODDS_API_SPORT_SLUGS: Record<string, string> = {
+  // Basketball
   NBA:                     'basketball',
   NCAAB:                   'basketball',
   WNBA:                    'basketball',
+  BASKETBALL:              'basketball',
+  // American Football
   NFL:                     'american-football',
   NCAAF:                   'american-football',
+  'AMERICAN FOOTBALL':     'american-football',
+  // Baseball
   MLB:                     'baseball',
+  BASEBALL:                'baseball',
+  // Ice Hockey
   NHL:                     'ice-hockey',
+  'ICE HOCKEY':            'ice-hockey',
   // Tennis
   ATP:                     'tennis',
   WTA:                     'tennis',
@@ -70,7 +78,15 @@ export const ODDS_API_SPORT_SLUGS: Record<string, string> = {
   // Golf
   PGA:                     'golf',
   GOLF:                    'golf',
-  // Soccer
+  // Other sports on odds-api.io
+  DARTS:                   'darts',
+  RUGBY:                   'rugby',
+  CRICKET:                 'cricket',
+  VOLLEYBALL:              'volleyball',
+  LACROSSE:                'lacrosse',
+  // Soccer — league names and generic
+  SOCCER:                  'football',
+  FOOTBALL:                'football',
   MLS:                     'football',
   EPL:                     'football',
   'PREMIER LEAGUE':        'football',
