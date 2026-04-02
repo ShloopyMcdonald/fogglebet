@@ -313,15 +313,36 @@ export function StatsPanel({ takenBets }: { takenBets: Bet[] }) {
           title="Training Stats"
           count={trainingBets ? trainingBets.length : null}
         />
-        <div className="rounded-lg border border-white/5 px-5 py-5">
-          {loadError ? (
+        {loadError ? (
+          <div className="rounded-lg border border-white/5 px-5 py-5">
             <div className="text-center py-12 text-red-500 text-sm">Failed to load training bets.</div>
-          ) : trainingBets === null ? (
+          </div>
+        ) : trainingBets === null ? (
+          <div className="rounded-lg border border-white/5 px-5 py-5">
             <div className="text-center py-12 text-zinc-600 text-sm">Loading…</div>
-          ) : (
-            <PLChart bets={trainingBets} />
-          )}
-        </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="rounded-lg border border-white/5 px-5 py-5">
+              <PLChart bets={trainingBets} />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              {MARKET_GROUPS.map(group => {
+                const groupBets = trainingBets.filter(b => getMarketGroup(b.market) === group)
+                const settledCount = groupBets.filter(b => b.result !== 'pending').length
+                return (
+                  <div key={group} className="rounded-lg border border-white/5 px-5 py-5">
+                    <div className="flex items-baseline gap-2 mb-4">
+                      <span className="text-xs font-semibold text-white uppercase tracking-wide">{group}</span>
+                      <span className="text-xs text-zinc-500">{settledCount} settled bet{settledCount !== 1 ? 's' : ''}</span>
+                    </div>
+                    <PLChart bets={groupBets} />
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
       </section>
 
       {/* ── Real Stats ─────────────────────────────────────────────── */}
@@ -332,26 +353,6 @@ export function StatsPanel({ takenBets }: { takenBets: Bet[] }) {
         />
         <div className="rounded-lg border border-white/5 px-5 py-5">
           <PLChart bets={takenBets} />
-        </div>
-      </section>
-
-      {/* ── P&L by Market ──────────────────────────────────────────── */}
-      <section>
-        <SectionHeading title="P&L by Market" count={null} />
-        <div className="grid grid-cols-2 gap-4">
-          {MARKET_GROUPS.map(group => {
-            const groupBets = takenBets.filter(b => getMarketGroup(b.market) === group)
-            const settledCount = groupBets.filter(b => b.result !== 'pending').length
-            return (
-              <div key={group} className="rounded-lg border border-white/5 px-5 py-5">
-                <div className="flex items-baseline gap-2 mb-4">
-                  <span className="text-xs font-semibold text-white uppercase tracking-wide">{group}</span>
-                  <span className="text-xs text-zinc-500">{settledCount} settled bet{settledCount !== 1 ? 's' : ''}</span>
-                </div>
-                <PLChart bets={groupBets} />
-              </div>
-            )
-          })}
         </div>
       </section>
     </div>
