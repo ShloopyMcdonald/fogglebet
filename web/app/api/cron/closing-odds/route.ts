@@ -54,7 +54,7 @@ export async function GET(req: NextRequest) {
   console.log(`[closing-odds-cron] Found ${bets.length} bets in window`)
 
   function toOddsSlug(sport: string): string | null {
-    return ODDS_API_SPORT_SLUGS[sport.toUpperCase().replace(/\s*\([^)]*\)\s*$/, '').trim()] ?? null
+    return ODDS_API_SPORT_SLUGS[sport.toLowerCase().replace(/\s*\([^)]*\)\s*$/, '').trim()] ?? null
   }
 
   // Time window for /events: cover ±2h around now to catch all games starting soon
