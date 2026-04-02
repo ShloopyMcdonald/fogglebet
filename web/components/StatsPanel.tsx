@@ -265,6 +265,17 @@ function PLChart({ bets }: { bets: Bet[] }) {
   )
 }
 
+const MARKET_GROUPS = ['Moneyline', 'Spread', 'Totals', 'Player Props'] as const
+type MarketGroup = typeof MARKET_GROUPS[number]
+
+function getMarketGroup(market: string | null): MarketGroup | null {
+  if (!market) return null
+  if (market === 'Moneyline') return 'Moneyline'
+  if (market === 'Spread') return 'Spread'
+  if (market === 'Total' || market.startsWith('Total ')) return 'Totals'
+  return 'Player Props'
+}
+
 function SectionHeading({ title, count }: { title: string; count: number | null }) {
   return (
     <div className="flex items-baseline gap-3 mb-4">
@@ -321,6 +332,26 @@ export function StatsPanel({ takenBets }: { takenBets: Bet[] }) {
         />
         <div className="rounded-lg border border-white/5 px-5 py-5">
           <PLChart bets={takenBets} />
+        </div>
+      </section>
+
+      {/* ── P&L by Market ──────────────────────────────────────────── */}
+      <section>
+        <SectionHeading title="P&L by Market" count={null} />
+        <div className="grid grid-cols-2 gap-4">
+          {MARKET_GROUPS.map(group => {
+            const groupBets = takenBets.filter(b => getMarketGroup(b.market) === group)
+            const settledCount = groupBets.filter(b => b.result !== 'pending').length
+            return (
+              <div key={group} className="rounded-lg border border-white/5 px-5 py-5">
+                <div className="flex items-baseline gap-2 mb-4">
+                  <span className="text-xs font-semibold text-white uppercase tracking-wide">{group}</span>
+                  <span className="text-xs text-zinc-500">{settledCount} settled bet{settledCount !== 1 ? 's' : ''}</span>
+                </div>
+                <PLChart bets={groupBets} />
+              </div>
+            )
+          })}
         </div>
       </section>
     </div>
