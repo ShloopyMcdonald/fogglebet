@@ -83,6 +83,14 @@ function PLChart({ bets }: { bets: Bet[] }) {
   const allPLs = series.flatMap(s => s.points.map(p => p.cumPL))
   const minTime = ORIGIN_TIME
   const maxTime = Math.max(...allTimes)
+
+  // Extend each series to the right edge so lines don't stop early
+  for (const s of series) {
+    const last = s.points[s.points.length - 1]
+    if (last && last.time < maxTime) {
+      s.points.push({ time: maxTime, cumPL: last.cumPL })
+    }
+  }
   const rawMinPL = Math.min(0, Math.min(...allPLs))
   const rawMaxPL = Math.max(0, Math.max(...allPLs))
 
