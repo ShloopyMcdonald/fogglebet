@@ -40,7 +40,7 @@ function niceTicks(min: number, max: number): number[] {
   return ticks
 }
 
-function PLChart({ bets }: { bets: Bet[] }) {
+function PLChart({ bets, colorMap }: { bets: Bet[]; colorMap?: Record<string, string> }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [tooltip, setTooltip] = useState<{ book: string; color: string; x: number; y: number } | null>(null)
   const settled = bets.filter(b => b.result !== 'pending')
@@ -125,7 +125,7 @@ function PLChart({ bets }: { bets: Bet[] }) {
       {/* Legend */}
       <div className="flex flex-wrap gap-x-5 gap-y-2 mb-5">
         {series.map(({ book, total }, i) => {
-          const color = BOOK_COLORS[i % BOOK_COLORS.length]
+          const color = colorMap?.[book] ?? BOOK_COLORS[i % BOOK_COLORS.length]
           return (
             <div key={book} className="flex items-center gap-2 text-xs">
               <svg width="18" height="10" className="shrink-0">
@@ -203,7 +203,7 @@ function PLChart({ bets }: { bets: Bet[] }) {
         {/* Lines per book */}
         {series.map(({ book, points }, i) => {
           if (points.length === 0) return null
-          const color = BOOK_COLORS[i % BOOK_COLORS.length]
+          const color = colorMap?.[book] ?? BOOK_COLORS[i % BOOK_COLORS.length]
 
           if (points.length === 1) {
             return (
@@ -313,6 +313,16 @@ export function StatsPanel({ takenBets }: { takenBets: Bet[] }) {
 
   const settledTaken = takenBets.filter(b => b.result !== 'pending')
 
+  // Build stable book→color maps so colors are consistent across all charts
+  const trainingColorMap: Record<string, string> = Object.fromEntries(
+    [...new Set((trainingBets ?? []).map(b => b.book))].sort()
+      .map((book, i) => [book, BOOK_COLORS[i % BOOK_COLORS.length]])
+  )
+  const takenColorMap: Record<string, string> = Object.fromEntries(
+    [...new Set(takenBets.map(b => b.book))].sort()
+      .map((book, i) => [book, BOOK_COLORS[i % BOOK_COLORS.length]])
+  )
+
   return (
     <div className="space-y-10">
       {/* ── Training Stats ─────────────────────────────────────────── */}
@@ -332,7 +342,7 @@ export function StatsPanel({ takenBets }: { takenBets: Bet[] }) {
         ) : (
           <div className="space-y-4">
             <div className="rounded-lg border border-white/5 px-5 py-5">
-              <PLChart bets={trainingBets} />
+              <PLChart bets={trainingBets} colorMap={trainingColorMap} />
             </div>
             <div className="grid grid-cols-2 gap-4">
               {MARKET_GROUPS.map(group => {
@@ -344,7 +354,7 @@ export function StatsPanel({ takenBets }: { takenBets: Bet[] }) {
                       <span className="text-xs font-semibold text-white uppercase tracking-wide">{group}</span>
                       <span className="text-xs text-zinc-500">{settledCount} settled bet{settledCount !== 1 ? 's' : ''}</span>
                     </div>
-                    <PLChart bets={groupBets} />
+                    <PLChart bets={groupBets} colorMap={trainingColorMap} />
                   </div>
                 )
               })}
@@ -360,7 +370,7 @@ export function StatsPanel({ takenBets }: { takenBets: Bet[] }) {
           count={settledTaken.length}
         />
         <div className="rounded-lg border border-white/5 px-5 py-5">
-          <PLChart bets={takenBets} />
+          <PLChart bets={takenBets} colorMap={takenColorMap} />
         </div>
       </section>
     </div>
