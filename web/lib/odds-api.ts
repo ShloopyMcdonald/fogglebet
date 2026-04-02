@@ -63,6 +63,13 @@ export const ODDS_API_SPORT_SLUGS: Record<string, string> = {
   ATP:                     'tennis',
   WTA:                     'tennis',
   TENNIS:                  'tennis',
+  // MMA / Combat
+  MMA:                     'mixed-martial-arts',
+  UFC:                     'mixed-martial-arts',
+  BOXING:                  'boxing',
+  // Golf
+  PGA:                     'golf',
+  GOLF:                    'golf',
   // Soccer
   MLS:                     'football',
   EPL:                     'football',
