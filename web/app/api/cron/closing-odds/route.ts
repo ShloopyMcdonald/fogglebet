@@ -68,6 +68,7 @@ export async function GET(req: NextRequest) {
     const slug = toOddsSlug(bet.sport)
     if (!slug) {
       console.warn(`[closing-odds-cron] No odds-api slug for sport: "${bet.sport}" (bet ${bet.id})`)
+      await supabase.from('bets').update({ clv_checked: true }).eq('id', bet.id)
       continue
     }
     const group = bySlug.get(slug) ?? []

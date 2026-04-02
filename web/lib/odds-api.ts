@@ -62,6 +62,7 @@ export const ODDS_API_SPORT_SLUGS: Record<string, string> = {
   // Tennis
   ATP:                     'tennis',
   WTA:                     'tennis',
+  TENNIS:                  'tennis',
   // Soccer
   MLS:                     'football',
   EPL:                     'football',
