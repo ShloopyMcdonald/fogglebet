@@ -145,7 +145,13 @@ export async function GET(req: NextRequest) {
 
       const { error: updateError } = await supabase
         .from('bets')
-        .update({ closing_odds: result.price, closing_book: result.bookKey, clv, clv_checked: true })
+        .update({
+          closing_odds: result.price,
+          closing_book: result.bookKey,
+          closing_odds_raw: { book: result.bookKey, market: bet.market, entry: result.rawEntry },
+          clv,
+          clv_checked: true,
+        })
         .eq('id', bet.id)
 
       if (updateError) {

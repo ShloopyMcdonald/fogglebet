@@ -44,6 +44,7 @@ export interface ClosingOddsResult {
   price: number
   opposingPrice: number | null
   bookKey: string
+  rawEntry: OddsApiOdds
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -253,11 +254,11 @@ function extractMoneylineOdds(
   event: OddsApiOddsResponse,
   odds: OddsApiOdds,
   betLine: string
-): { price: number; opposingPrice: number | null } | null {
+): { price: number; opposingPrice: number | null; rawEntry: OddsApiOdds } | null {
   if (betLine.toLowerCase() === 'draw') {
     const p = parseDecimalOdds(odds.draw)
     if (p == null) return null
-    return { price: decimalToAmerican(p), opposingPrice: null }
+    return { price: decimalToAmerican(p), opposingPrice: null, rawEntry: odds }
   }
   const isHome = teamMatchesName(betLine, event.home)
   const isAway = teamMatchesName(betLine, event.away)
@@ -266,14 +267,14 @@ function extractMoneylineOdds(
   const ourP = parseDecimalOdds(ourVal ?? undefined)
   if (ourP == null) return null
   const oppP = parseDecimalOdds(oppVal ?? undefined)
-  return { price: decimalToAmerican(ourP), opposingPrice: oppP != null ? decimalToAmerican(oppP) : null }
+  return { price: decimalToAmerican(ourP), opposingPrice: oppP != null ? decimalToAmerican(oppP) : null, rawEntry: odds }
 }
 
 function extractSpreadOdds(
   event: OddsApiOddsResponse,
   oddsArr: OddsApiOdds[],
   betLine: string
-): { price: number; opposingPrice: number | null } | null {
+): { price: number; opposingPrice: number | null; rawEntry: OddsApiOdds } | null {
   const parsed = parseSpreadLine(betLine)
   if (!parsed) return null
 
@@ -291,13 +292,13 @@ function extractSpreadOdds(
   const ourP = parseDecimalOdds(betIsHome ? entry.home : entry.away)
   const oppP = parseDecimalOdds(betIsHome ? entry.away : entry.home)
   if (ourP == null) return null
-  return { price: decimalToAmerican(ourP), opposingPrice: oppP != null ? decimalToAmerican(oppP) : null }
+  return { price: decimalToAmerican(ourP), opposingPrice: oppP != null ? decimalToAmerican(oppP) : null, rawEntry: entry }
 }
 
 function extractTotalOdds(
   oddsArr: OddsApiOdds[],
   betLine: string
-): { price: number; opposingPrice: number | null } | null {
+): { price: number; opposingPrice: number | null; rawEntry: OddsApiOdds } | null {
   const m = betLine.match(/^(Over|Under)\s+([\d.]+)/i)
   if (!m) return null
   const direction = m[1].toLowerCase()
@@ -309,7 +310,7 @@ function extractTotalOdds(
   const ourP = parseDecimalOdds(direction === 'over' ? entry.over : entry.under)
   const oppP = parseDecimalOdds(direction === 'over' ? entry.under : entry.over)
   if (ourP == null) return null
-  return { price: decimalToAmerican(ourP), opposingPrice: oppP != null ? decimalToAmerican(oppP) : null }
+  return { price: decimalToAmerican(ourP), opposingPrice: oppP != null ? decimalToAmerican(oppP) : null, rawEntry: entry }
 }
 
 // Props label format: "Paolo Banchero (Points)" — match by lastName + stat type in parens.
@@ -318,7 +319,7 @@ function extractPropOdds(
   lastName: string,
   statLabelStr: string,  // e.g. "Points" (the parentheses content to match)
   betLine: string
-): { price: number; opposingPrice: number | null } | null {
+): { price: number; opposingPrice: number | null; rawEntry: OddsApiOdds } | null {
   const m = betLine.match(/^(Over|Under)\s+([\d.]+)/i)
   if (!m) return null
   const direction = m[1].toLowerCase()
@@ -342,7 +343,7 @@ function extractPropOdds(
   const oppP = parseDecimalOdds(direction === 'over' ? entry.under : entry.over)
   // Require both sides — one-sided prop odds can't be de-vigged.
   if (ourP == null || oppP == null) return null
-  return { price: decimalToAmerican(ourP), opposingPrice: decimalToAmerican(oppP) }
+  return { price: decimalToAmerican(ourP), opposingPrice: decimalToAmerican(oppP), rawEntry: entry }
 }
 
 // ── Player Prop Market Parsing ────────────────────────────────────────────────
@@ -378,7 +379,7 @@ function extractFeaturedOddsFromBookmaker(
   event: OddsApiOddsResponse,
   markets: OddsApiMarket[],
   bet: Bet
-): { price: number; opposingPrice: number | null } | null {
+): { price: number; opposingPrice: number | null; rawEntry: OddsApiOdds } | null {
   const market = bet.market!
   const line = bet.line!
 

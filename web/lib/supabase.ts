@@ -25,6 +25,7 @@ export interface Bet {
   arb_percent: number | null
   closing_odds: number | null
   closing_book: string | null
+  closing_odds_raw: Record<string, unknown> | null
   clv: number | null
   clv_checked: boolean
   result: BetResult
