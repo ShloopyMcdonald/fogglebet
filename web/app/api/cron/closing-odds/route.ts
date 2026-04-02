@@ -132,7 +132,8 @@ export async function GET(req: NextRequest) {
 
       const result = findClosingOdds(oddsResp, bet)
       if (!result) {
-        console.warn(`[closing-odds-cron] No closing odds found for bet ${bet.id}`)
+        console.warn(`[closing-odds-cron] No closing odds found for bet ${bet.id} — marking clv_checked`)
+        await supabase.from('bets').update({ clv_checked: true }).eq('id', bet.id)
         failedIds.push(bet.id)
         continue
       }
@@ -141,7 +142,7 @@ export async function GET(req: NextRequest) {
 
       const { error: updateError } = await supabase
         .from('bets')
-        .update({ closing_odds: result.price, closing_book: result.bookKey, clv })
+        .update({ closing_odds: result.price, closing_book: result.bookKey, clv, clv_checked: true })
         .eq('id', bet.id)
 
       if (updateError) {

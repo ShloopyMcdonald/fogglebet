@@ -316,8 +316,9 @@ function extractPropOdds(
 
   const ourP = parseDecimalOdds(direction === 'over' ? entry.over : entry.under)
   const oppP = parseDecimalOdds(direction === 'over' ? entry.under : entry.over)
-  if (ourP == null) return null
-  return { price: decimalToAmerican(ourP), opposingPrice: oppP != null ? decimalToAmerican(oppP) : null }
+  // Require both sides — one-sided prop odds can't be de-vigged.
+  if (ourP == null || oppP == null) return null
+  return { price: decimalToAmerican(ourP), opposingPrice: decimalToAmerican(oppP) }
 }
 
 // ── Player Prop Market Parsing ────────────────────────────────────────────────
@@ -412,6 +413,9 @@ export function findClosingOdds(
   }
 
   // ── Featured markets: Circa → BetOnline.ag → FanDuel ────────────────────────
+  // Require both sides (opposingPrice != null) so de-vig is accurate.
+  // Draw moneylines are exempt — they're 3-way markets with no single opposing side.
+  const isDraw = bet.line?.toLowerCase() === 'draw'
   const bookOrder = [
     ...SHARP_BOOK_PRIORITY,
     ...Object.keys(oddsResp.bookmakers).filter(n => !SHARP_BOOK_PRIORITY.includes(n)),
@@ -422,7 +426,9 @@ export function findClosingOdds(
     if (!bmMarkets) continue
 
     const result = extractFeaturedOddsFromBookmaker(oddsResp, bmMarkets, bet)
-    if (result) return { ...result, bookKey: bookName }
+    if (!result) continue
+    if (result.opposingPrice == null && !isDraw) continue  // one-sided data — skip this book
+    return { ...result, bookKey: bookName }
   }
 
   console.warn(

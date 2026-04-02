@@ -223,6 +223,8 @@ export function BetTable({ bets }: { bets: Bet[] }) {
                   <span className={bet.clv >= 0 ? 'text-emerald-400' : 'text-red-400'}>
                     {bet.clv > 0 ? '+' : ''}{bet.clv.toFixed(1)}%
                   </span>
+                ) : bet.clv_checked ? (
+                  <span className="text-zinc-600">n/a</span>
                 ) : (
                   <span className="text-zinc-700">—</span>
                 )}
@@ -262,9 +264,11 @@ export function BetTable({ bets }: { bets: Bet[] }) {
                     {bet.arb_percent != null && (
                       <div>Arb: <span className="text-zinc-300">{bet.arb_percent.toFixed(2)}%</span></div>
                     )}
-                    {bet.clv != null && (
+                    {bet.clv != null ? (
                       <div>CLV: <span className={bet.clv > 0 ? 'text-emerald-400' : 'text-red-400'}>{bet.clv > 0 ? '+' : ''}{bet.clv.toFixed(2)}%</span></div>
-                    )}
+                    ) : bet.clv_checked ? (
+                      <div>CLV: <span className="text-zinc-600">n/a</span></div>
+                    ) : null}
                     {bet.closing_odds != null && (
                       <div>Closing: <span className="text-zinc-300">{formatOdds(bet.closing_odds)}{bet.closing_book ? ` (${bet.closing_book})` : ''}</span></div>
                     )}

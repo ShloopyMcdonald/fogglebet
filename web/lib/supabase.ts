@@ -26,6 +26,7 @@ export interface Bet {
   closing_odds: number | null
   closing_book: string | null
   clv: number | null
+  clv_checked: boolean
   result: BetResult
   profit_loss: number | null
   stake: number
