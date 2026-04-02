@@ -106,8 +106,8 @@ export const ODDS_API_SPORT_SLUGS: Record<string, string> = {
 // Circa is the sharpest available, then BetOnline.ag, then FanDuel as fallback.
 export const SHARP_BOOK_PRIORITY = ['Circa', 'BetOnline.ag', 'FanDuel']
 
-// Player prop closing odds are always sourced from FanDuel (best prop coverage).
-const PROP_BOOK = 'FanDuel'
+// Priority order for prop markets: FanDuel (best coverage) → Circa → DraftKings.
+export const PROP_BOOK_PRIORITY = ['FanDuel', 'Circa', 'DraftKings']
 
 // picktheodds stat type → string that appears in the odds-api.io label parentheses,
 // e.g. "Points - Doncic, L" → statType "Points" → label contains "(Points)".
@@ -412,7 +412,7 @@ export function findClosingOdds(
     return null
   }
 
-  // ── Player props: always use FanDuel ────────────────────────────────────────
+  // ── Player props: FanDuel → Circa → DraftKings ──────────────────────────────
   if (!isFeaturedMarket(bet.market)) {
     const parsed = parsePropMarketStr(bet.market)
     if (!parsed) {
@@ -424,16 +424,16 @@ export function findClosingOdds(
       console.warn(`[odds-api] Unsupported prop stat type: "${parsed.statType}" (bet ${bet.id})`)
       return null
     }
-    const bmMarkets = oddsResp.bookmakers[PROP_BOOK]
-    if (!bmMarkets) {
-      console.warn(`[odds-api] ${PROP_BOOK} not in odds response for bet ${bet.id}`)
-      return null
+    for (const bookName of PROP_BOOK_PRIORITY) {
+      const bmMarkets = oddsResp.bookmakers[bookName]
+      if (!bmMarkets) continue
+      const propMkt = bmMarkets.find(m => m.name === 'Player Props')
+      if (!propMkt) continue
+      const result = extractPropOdds(propMkt.odds, parsed.lastName, statLabel, bet.line)
+      if (result) return { ...result, bookKey: bookName }
     }
-    const propMkt = bmMarkets.find(m => m.name === 'Player Props')
-    if (!propMkt) return null
-    const result = extractPropOdds(propMkt.odds, parsed.lastName, statLabel, bet.line)
-    if (!result) return null
-    return { ...result, bookKey: PROP_BOOK }
+    console.warn(`[odds-api] No prop odds found for bet ${bet.id} (${bet.market})`)
+    return null
   }
 
   // ── Featured markets: Circa → BetOnline.ag → FanDuel ────────────────────────

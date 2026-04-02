@@ -4,6 +4,7 @@ import { parseTeamsFromBetName } from '@/lib/espn'
 import {
   ODDS_API_SPORT_SLUGS,
   SHARP_BOOK_PRIORITY,
+  PROP_BOOK_PRIORITY,
   fetchEvents,
   fetchEventOddsById,
   findEvent,
@@ -121,7 +122,8 @@ export async function GET(req: NextRequest) {
       // Fetch full odds for this event — cached so two bets on the same game share one call
       if (!oddsCache.has(event.id)) {
         try {
-          const oddsResp = await fetchEventOddsById(event.id, SHARP_BOOK_PRIORITY, apiKey)
+          const allBooks = [...new Set([...SHARP_BOOK_PRIORITY, ...PROP_BOOK_PRIORITY])]
+          const oddsResp = await fetchEventOddsById(event.id, allBooks, apiKey)
           oddsCache.set(event.id, oddsResp)
         } catch (err) {
           console.error(`[closing-odds-cron] fetchEventOddsById failed for ${event.id}:`, err)
