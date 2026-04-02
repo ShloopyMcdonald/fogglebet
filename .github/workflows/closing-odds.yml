@@ -1,10 +1,8 @@
 name: Capture Closing Odds
 
 on:
-  schedule:
-    # Run every minute to catch closing odds ~1 minute before game time
-    - cron: '* * * * *'
-  # Allow manual trigger for testing
+  # Replaced by cron-job.org (fires reliably every minute, unlike GitHub Actions)
+  # Keep workflow_dispatch for manual testing
   workflow_dispatch:
 
 jobs:
