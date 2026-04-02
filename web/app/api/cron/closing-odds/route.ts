@@ -29,10 +29,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'ODDS_API_KEY not configured' }, { status: 500 })
   }
 
-  // Fetch bets whose game starts within the next 2 minutes (always before game time)
+  // Fetch bets whose game starts within the next 90 minutes, or started up to 10 minutes ago.
+  // GitHub Actions cron runs every ~40 minutes in practice (not guaranteed every minute),
+  // so the window must be wide enough that a 40-minute-late run still catches the game.
   const now = new Date()
-  const windowStart = now.toISOString()
-  const windowEnd = new Date(now.getTime() + 2 * 60 * 1000).toISOString()
+  const windowStart = new Date(now.getTime() - 10 * 60 * 1000).toISOString()
+  const windowEnd = new Date(now.getTime() + 90 * 60 * 1000).toISOString()
 
   const { data, error: fetchError } = await supabase
     .from('bets')

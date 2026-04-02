@@ -112,6 +112,39 @@ true_fav_prob = b0 / (1 + b0)
 
 ---
 
+## odds-api.io live API structure (verified 2026-04-02)
+
+**Confirmed via live Playwright browser tests against the real API.**
+
+**Events endpoint:** `GET /v3/events?sport=basketball&from=ISO&to=ISO&status=pending,live&limit=100`
+- `from`/`to` params are supported and filter by event start time (ISO timestamps work)
+- `status=pending,live` (comma-separated) is supported
+- NBA league slug: `usa-nba` (can add `&league=usa-nba` for precision)
+- Without league filter, ~24 basketball events appear in the ±2h window around NBA game time — NBA always within first 100
+
+**Odds endpoint:** `GET /v3/odds?eventId=N&bookmakers=Circa,BetOnline.ag,FanDuel`
+- Response: `bookmakers.{BookName}` is an array of `{name, updatedAt, odds[]}` markets
+- Allowed bookmakers on this account: Caesars, Circa, DraftKings, FanDuel, BetOnline.ag
+
+**Player Props structure (verified against FanDuel):**
+- Single market named exactly `"Player Props"` (NOT separate per-stat markets like the docs show)
+- Label format: `"FirstName LastName (StatType)"` — full name, stat in parens
+- Confirmed NBA stat types: `Points`, `Rebounds`, `Assists`, `Blocks`, `Steals`, `3 Point FG`, `Pts+Asts`, `Pts+Rebs`, `Pts+Rebs+Asts`, `Rebs+Asts`, `Double+Double`, `Triple+Double`, `First Basket`
+- `hdp` = the line number; `over`/`under` = decimal odds as strings (can be `"N/A"`)
+- Multiple entries for same player = alternate lines; use `hdp` to find the exact bet line
+- Circa and BetOnline.ag have NO Player Props for NBA — only ML/Spread/Totals
+
+**Featured market names (Circa confirmed):** `"ML"`, `"Spread"`, `"Totals"`
+- Totals `hdp` field = the total number (NOT `max`)
+
+**All PROP_STAT_LABEL_MAP NBA entries verified correct.** `Turnovers` not available on FanDuel for NBA (dead entry, not a bug). `Double+Double`/`Triple+Double`/`First Basket` are outright markets (no hdp), correctly skipped.
+
+**Full CLV simulation test passed:** fetchEvents → findEvent (team name match) → fetchEventOddsById → findClosingOdds all work correctly end-to-end.
+
+**Root cause of "CLV not working at all":** All bets in DB have closing_odds=null despite correct code. Issue is environmental — check: (1) `ODDS_API_KEY` set in Vercel env vars, (2) `CRON_SECRET` matches between GitHub Actions secret and Vercel, (3) GitHub Actions workflow enabled and not failing on every run.
+
+---
+
 ## Index-based fallback in book_odds lookup causes one-sided books to appear on both legs
 
 **Bug:** In `handleLogClick` and `postBets`, odds for a given book+leg were looked up as `sides[sideLabel] ?? sides[Object.keys(sides)[i]]`. If a book (e.g. ProphetX) only offered odds on one side (e.g. Under), the fallback assigned those Under odds to the Over leg (index 0) because `Object.keys(sides)[0]` was "Under".
