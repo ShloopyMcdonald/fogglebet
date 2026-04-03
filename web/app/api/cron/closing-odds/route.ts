@@ -31,8 +31,7 @@ export async function GET(req: NextRequest) {
   }
 
   const now = new Date()
-  // Look back 3 hours to catch games missed by previous cron runs
-  const windowStart = new Date(now.getTime() - 3 * 60 * 60 * 1000).toISOString()
+  const windowStart = new Date(now.getTime() - 10 * 60 * 1000).toISOString()
   const windowEnd = new Date(now.getTime() + 10 * 60 * 1000).toISOString()
 
   const { data, error: fetchError } = await supabase
