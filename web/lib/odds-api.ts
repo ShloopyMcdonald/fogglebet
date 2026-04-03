@@ -103,6 +103,55 @@ export const ODDS_API_SPORT_SLUGS: Record<string, string> = {
   'europa league':         'football',
 }
 
+// Maps picktheodds sport name → odds-api.io league slug for precise event querying.
+// null = no specific league known; fetchEvents will fall back to sport-only.
+// Verified against live API on 2026-04-02.
+export const ODDS_API_LEAGUE_SLUGS: Record<string, string | null> = {
+  // Basketball
+  nba:                     'usa-nba',
+  ncaab:                   'usa-ncaa-division-i-national-championship',
+  wnba:                    null,   // off-season; slug TBD when season starts
+  basketball:              null,
+  // American Football
+  nfl:                     null,   // off-season; slug TBD
+  ncaaf:                   null,
+  'american football':     null,
+  // Baseball
+  mlb:                     'usa-mlb',
+  baseball:                'usa-mlb',
+  // Ice Hockey
+  nhl:                     'usa-nhl',
+  'ice hockey':            'usa-nhl',
+  // Tennis — leagues are dynamic per tournament; always query by sport
+  atp:                     null,
+  wta:                     null,
+  tennis:                  null,
+  // MMA / Combat
+  mma:                     null,
+  ufc:                     null,
+  boxing:                  null,
+  // Golf
+  pga:                     null,
+  golf:                    null,
+  // Soccer — map specific league names first
+  mls:                     'usa-mls',
+  epl:                     'england-premier-league',
+  'premier league':        'england-premier-league',
+  laliga:                  'spain-laliga',
+  'la liga':               'spain-laliga',
+  bundesliga:              'germany-bundesliga',
+  'serie a':               'italy-serie-a',
+  'ligue 1':               'france-ligue-1',
+  ucl:                     'international-clubs-uefa-champions-league',
+  'champions league':      'international-clubs-uefa-champions-league',
+  'uefa champions league': 'international-clubs-uefa-champions-league',
+  uel:                     'international-clubs-uefa-europa-league',
+  'europa league':         'international-clubs-uefa-europa-league',
+  // Generic soccer — no single league
+  soccer:                  null,
+  football:                null,
+}
+
 // Priority order for featured markets (ML / Spread / Totals).
 // Circa is the sharpest available, then BetOnline.ag, then FanDuel as fallback.
 export const SHARP_BOOK_PRIORITY = ['Circa', 'BetOnline.ag', 'FanDuel']
@@ -195,12 +244,15 @@ function parseSpreadLine(line: string): { teamKeyword: string; spread: number } 
 
 // ── API Fetching ──────────────────────────────────────────────────────────────
 
-// Returns events for a sport within a time window. Used to resolve team names → event IDs.
+// Returns events for a sport (+ optional league) within a time window.
+// Used to resolve team names → event IDs.
+// Pass leagueSlug when known — it narrows results to one league and removes the need for a limit.
 export async function fetchEvents(
   sportSlug: string,
   from: string,
   to: string,
-  apiKey: string
+  apiKey: string,
+  leagueSlug?: string
 ): Promise<OddsApiEvent[]> {
   const params = new URLSearchParams({
     apiKey,
@@ -208,12 +260,17 @@ export async function fetchEvents(
     from,
     to,
     status: 'pending,live',
-    limit: '100',
   })
+  if (leagueSlug) {
+    params.set('league', leagueSlug)
+  } else {
+    // Without a league filter the result set can be large; cap at 200 as a safety net.
+    params.set('limit', '200')
+  }
   const res = await fetch(`${ODDS_API_IO_BASE}/events?${params}`, { cache: 'no-store' })
   if (!res.ok) {
     const text = await res.text()
-    throw new Error(`[odds-api] fetchEvents ${sportSlug} failed ${res.status}: ${text}`)
+    throw new Error(`[odds-api] fetchEvents ${sportSlug}${leagueSlug ? `/${leagueSlug}` : ''} failed ${res.status}: ${text}`)
   }
   return res.json() as Promise<OddsApiEvent[]>
 }
@@ -239,13 +296,17 @@ export async function fetchEventOddsById(
 
 // ── Event Matching ────────────────────────────────────────────────────────────
 
+// Returns the soonest matching event for a given matchup.
+// When the same two teams appear multiple times (back-to-back games), the earliest date wins.
 export function findEvent(events: OddsApiEvent[], team1: string, team2: string): OddsApiEvent | null {
-  for (const ev of events) {
+  const matches = events.filter(ev => {
     const hasTeam1 = teamMatchesName(team1, ev.home) || teamMatchesName(team1, ev.away)
     const hasTeam2 = teamMatchesName(team2, ev.home) || teamMatchesName(team2, ev.away)
-    if (hasTeam1 && hasTeam2) return ev
-  }
-  return null
+    return hasTeam1 && hasTeam2
+  })
+  if (matches.length === 0) return null
+  matches.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+  return matches[0]
 }
 
 // ── Outcome Extraction ────────────────────────────────────────────────────────

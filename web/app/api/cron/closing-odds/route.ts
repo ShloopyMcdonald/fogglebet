@@ -3,6 +3,7 @@ import { supabase, Bet } from '@/lib/supabase'
 import { parseTeamsFromBetName } from '@/lib/espn'
 import {
   ODDS_API_SPORT_SLUGS,
+  ODDS_API_LEAGUE_SLUGS,
   SHARP_BOOK_PRIORITY,
   PROP_BOOK_PRIORITY,
   fetchEvents,
@@ -55,27 +56,36 @@ export async function GET(req: NextRequest) {
 
   console.log(`[closing-odds-cron] Found ${bets.length} bets in window`)
 
-  function toOddsSlug(sport: string): string | null {
-    return ODDS_API_SPORT_SLUGS[sport.toLowerCase().replace(/\s*\([^)]*\)\s*$/, '').trim()] ?? null
+  function normalizeSport(sport: string): string {
+    return sport.toLowerCase().replace(/\s*\([^)]*\)\s*$/, '').trim()
+  }
+  function toSportSlug(sport: string): string | null {
+    return ODDS_API_SPORT_SLUGS[normalizeSport(sport)] ?? null
+  }
+  function toLeagueSlug(sport: string): string | null {
+    return ODDS_API_LEAGUE_SLUGS[normalizeSport(sport)] ?? null
   }
 
   // Time window for /events: cover ±2h around now to catch all games starting soon
   const eventsFrom = new Date(now.getTime() - 2 * 60 * 60 * 1000).toISOString()
   const eventsTo = new Date(now.getTime() + 2 * 60 * 60 * 1000).toISOString()
 
-  // Group all bets (featured + props) by sport slug
-  const bySlug = new Map<string, Bet[]>()
+  // Group all bets (featured + props) by "sportSlug|leagueSlug" so each unique
+  // sport+league combo gets exactly one /events fetch.
+  const bySlug = new Map<string, { sportSlug: string; leagueSlug: string | null; bets: Bet[] }>()
   for (const bet of bets) {
     if (!bet.sport || !bet.market) continue
-    const slug = toOddsSlug(bet.sport)
-    if (!slug) {
+    const sportSlug = toSportSlug(bet.sport)
+    if (!sportSlug) {
       console.warn(`[closing-odds-cron] No odds-api slug for sport: "${bet.sport}" (bet ${bet.id})`)
       await supabase.from('bets').update({ clv_checked: true }).eq('id', bet.id)
       continue
     }
-    const group = bySlug.get(slug) ?? []
-    group.push(bet)
-    bySlug.set(slug, group)
+    const leagueSlug = toLeagueSlug(bet.sport)
+    const key = `${sportSlug}|${leagueSlug ?? ''}`
+    const group = bySlug.get(key) ?? { sportSlug, leagueSlug, bets: [] }
+    group.bets.push(bet)
+    bySlug.set(key, group)
   }
 
   // Cache events per sport slug; cache full odds per event ID
@@ -88,22 +98,23 @@ export async function GET(req: NextRequest) {
   const definitiveIds: string[] = []
   const transientIds: string[] = []
 
-  for (const [slug, slugBets] of bySlug) {
-    if (!eventsCache.has(slug)) {
+  for (const [cacheKey, { sportSlug, leagueSlug, bets: slugBets }] of bySlug) {
+    if (!eventsCache.has(cacheKey)) {
       try {
-        const events = await fetchEvents(slug, eventsFrom, eventsTo, apiKey)
-        eventsCache.set(slug, events)
-        console.log(`[closing-odds-cron] Fetched ${events.length} events for ${slug}`)
+        const events = await fetchEvents(sportSlug, eventsFrom, eventsTo, apiKey, leagueSlug ?? undefined)
+        eventsCache.set(cacheKey, events)
+        const label = leagueSlug ? `${sportSlug}/${leagueSlug}` : sportSlug
+        console.log(`[closing-odds-cron] Fetched ${events.length} events for ${label}`)
         if (events.length > 0) {
           console.log(`[closing-odds-cron] First event sample:`, JSON.stringify(events[0]))
         }
       } catch (err) {
-        console.error(`[closing-odds-cron] fetchEvents failed for ${slug}:`, err)
+        console.error(`[closing-odds-cron] fetchEvents failed for ${sportSlug}:`, err)
         for (const b of slugBets) transientIds.push(b.id)
         continue
       }
     }
-    const events = eventsCache.get(slug)!
+    const events = eventsCache.get(cacheKey)!
 
     for (const bet of slugBets) {
       if (!bet.line) {
