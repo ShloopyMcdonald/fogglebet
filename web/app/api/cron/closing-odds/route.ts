@@ -31,13 +31,15 @@ export async function GET(req: NextRequest) {
   }
 
   const now = new Date()
-  const windowStart = new Date(now.getTime() - 10 * 60 * 1000).toISOString()
+  // Look back 3 hours to catch games missed by previous cron runs
+  const windowStart = new Date(now.getTime() - 3 * 60 * 60 * 1000).toISOString()
   const windowEnd = new Date(now.getTime() + 10 * 60 * 1000).toISOString()
 
   const { data, error: fetchError } = await supabase
     .from('bets')
     .select('*')
     .is('closing_odds', null)
+    .eq('clv_checked', false)
     .not('game_time', 'is', null)
     .gte('game_time', windowStart)
     .lte('game_time', windowEnd)
