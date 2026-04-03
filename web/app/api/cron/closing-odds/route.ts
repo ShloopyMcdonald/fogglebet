@@ -32,8 +32,25 @@ export async function GET(req: NextRequest) {
   }
 
   const now = new Date()
-  const windowStart = new Date(now.getTime() - 10 * 60 * 1000).toISOString()
-  const windowEnd = new Date(now.getTime() + 10 * 60 * 1000).toISOString()
+
+  // Pre-game capture windows per sport (minutes before game start).
+  // Fetch with the widest window, then filter per-bet below.
+  const SPORT_WINDOWS_MINUTES: Record<string, number> = {
+    nba: 12,
+    nhl: 12,
+    mlb: 2,
+  }
+  const DEFAULT_WINDOW_MINUTES = 5
+  const MAX_WINDOW_MINUTES = 12 // must equal the largest value above
+
+  function preGameWindowMinutes(sport: string): number {
+    const normalized = sport.toLowerCase().replace(/\s*\([^)]*\)\s*$/, '').trim()
+    return SPORT_WINDOWS_MINUTES[normalized] ?? DEFAULT_WINDOW_MINUTES
+  }
+
+  // Fetch a bit behind game time too, to catch cron runs that fire slightly after start
+  const windowStart = new Date(now.getTime() - 5 * 60 * 1000).toISOString()
+  const windowEnd = new Date(now.getTime() + MAX_WINDOW_MINUTES * 60 * 1000).toISOString()
 
   const { data, error: fetchError } = await supabase
     .from('bets')
@@ -49,7 +66,13 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Database error' }, { status: 500 })
   }
 
-  const bets = (data ?? []) as Bet[]
+  // Filter: each bet must be within its sport's pre-game window
+  const bets = ((data ?? []) as Bet[]).filter(bet => {
+    if (!bet.game_time || !bet.sport) return true
+    const windowMs = preGameWindowMinutes(bet.sport) * 60 * 1000
+    const cutoff = new Date(now.getTime() + windowMs)
+    return new Date(bet.game_time) <= cutoff
+  })
   if (bets.length === 0) {
     return NextResponse.json({ captured: 0, total: 0 })
   }
