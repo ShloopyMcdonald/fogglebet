@@ -145,6 +145,16 @@ true_fav_prob = b0 / (1 + b0)
 
 ---
 
+## Compact leg odds corrupted by expanded book-odds table spans (moneyline swap root cause)
+
+**Bug:** `scrapeRow` found compact leg odds with `row.querySelectorAll('span.MuiTypography-oddsRobotoMono')`. When the row is expanded, the book-odds table (inside a `<table>`) uses the same class for every odds cell. Those extra spans were picked up first (or mixed in), making `oddsValues[0,1]` be random table odds (e.g. Circa's -196) instead of the compact leg odds (+175/-176). This corrupted the `compactOdds` ground truth used by `fixBookOddsSideOrder`, which then bailed out without fixing the swap.
+
+**Fix:** Add `.filter(el => !el.closest('table'))` to the span query in `scrapeRow`. Compact leg spans are never inside a `<table>`; expanded table spans always are.
+
+**Pattern:** Any time a selector is used on the whole row container while expanded, table descendants must be explicitly excluded.
+
+---
+
 ## Index-based fallback in book_odds lookup causes one-sided books to appear on both legs
 
 **Bug:** In `handleLogClick` and `postBets`, odds for a given book+leg were looked up as `sides[sideLabel] ?? sides[Object.keys(sides)[i]]`. If a book (e.g. ProphetX) only offered odds on one side (e.g. Under), the fallback assigned those Under odds to the Over leg (index 0) because `Object.keys(sides)[0]` was "Under".
