@@ -82,9 +82,12 @@ console.log('[FoggleBet] content script loaded', window.location.href)
       legData.push({ book, bookImgAlt, sideLabel, sideLine, href })
     }
 
-    // Leg odds — spans are siblings to the <a> tags, not inside them
-    const oddsSpans = row.querySelectorAll('span.MuiTypography-oddsRobotoMono')
-    const oddsValues = Array.from(oddsSpans).map(el => {
+    // Leg odds — spans are siblings to the <a> tags, not inside them.
+    // Exclude spans inside <table> — the expanded book-odds table uses the same
+    // class and would corrupt oddsValues[0,1] if picked up first.
+    const oddsSpans = Array.from(row.querySelectorAll('span.MuiTypography-oddsRobotoMono'))
+      .filter(el => !el.closest('table'))
+    const oddsValues = oddsSpans.map(el => {
       const text = el.textContent?.trim()
       return text ? parseInt(text.replace('+', ''), 10) : null
     })
