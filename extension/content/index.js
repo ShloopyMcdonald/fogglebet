@@ -626,6 +626,47 @@ console.log('[FoggleBet] content script loaded', window.location.href)
     return result
   }
 
+  // ─── Book-odds side-order validator ──────────────────────────────────────
+  // For moneylines the expanded table renders buttons in game order (home/away),
+  // which can differ from the compact leg DOM order. Spreads are corrected by the
+  // cell-0 aria-label reorder logic; moneylines have no equivalent. This function
+  // uses the compact odds (captured before enrichment) as ground truth: if
+  // book_odds[leg0.book][leg0.side] doesn't match compact0 but [leg1.side] does,
+  // the sides are swapped — swap the side keys across all books.
+
+  function fixBookOddsSideOrder(book_odds, legs, compactOdds) {
+    if (legs.length < 2) return book_odds
+    const side0 = legs[0].side_label
+    const side1 = legs[1].side_label
+    if (!side0 || !side1 || side0 === side1) return book_odds
+
+    const refBook = legs[0].book
+    if (!refBook || !book_odds[refBook]) return book_odds
+
+    const compact0 = compactOdds[0]
+    if (compact0 == null) return book_odds
+
+    const refOdds0 = book_odds[refBook][side0]?.odds
+    const refOdds1 = book_odds[refBook][side1]?.odds
+
+    if (refOdds0 == null) return book_odds
+    if (refOdds0 === compact0) return book_odds      // already correct
+    if (refOdds1 !== compact0) return book_odds      // swap wouldn't fix it
+
+    console.log('[FoggleBet] fixBookOddsSideOrder — swapping sides', { side0, side1, compact0, refOdds0 })
+
+    const fixed = {}
+    for (const [book, sides] of Object.entries(book_odds)) {
+      fixed[book] = {}
+      if (sides[side1] !== undefined) fixed[book][side0] = sides[side1]
+      if (sides[side0] !== undefined) fixed[book][side1] = sides[side0]
+      for (const [s, v] of Object.entries(sides)) {
+        if (s !== side0 && s !== side1) fixed[book][s] = v
+      }
+    }
+    return fixed
+  }
+
   // ─── Log click handler ────────────────────────────────────────────────────
 
   async function handleLogClick(row, btn) {
@@ -663,6 +704,11 @@ console.log('[FoggleBet] content script loaded', window.location.href)
 
     arbData.book_odds = scrapeBookOdds(row, takenBooks, sideLabels, bookAltMap, sideLines)
     console.log('[FoggleBet] book_odds:', JSON.stringify(arbData.book_odds))
+
+    // Validate and fix book_odds side ordering using compact odds as ground truth.
+    // Must run before enrichment so we don't overwrite correct compact odds with swapped values.
+    const compactOdds = arbData.legs.map(l => l.odds)
+    arbData.book_odds = fixBookOddsSideOrder(arbData.book_odds, arbData.legs, compactOdds)
 
     // Enrich each leg's odds + liquidity from book_odds
     arbData.legs = arbData.legs.map((leg, i) => {
