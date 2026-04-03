@@ -43,8 +43,12 @@ console.log('[FoggleBet] content script loaded', window.location.href)
     // walking 2 levels up. This works for both US books (<a href> containers) and
     // international books like BookMaker.eu (plain <div> containers with no <a> at all).
     // Spread-value aria-labels like "CHI+32.5" are excluded via the /[+-]\d/ filter.
+    // Exclude divs inside <table> — those belong to the expanded book-odds table header,
+    // not to the compact leg containers. This prevents rare misidentification (~1/20 bets)
+    // when the expanded table's DOM order precedes the compact legs.
     const bookDivs = Array.from(row.querySelectorAll('div[aria-label]'))
       .filter(el => !/[+-]\d/.test(el.getAttribute('aria-label') ?? ''))
+      .filter(el => !el.closest('table'))
       .slice(0, 2)
     const legs = bookDivs
       .map(div => div.parentElement?.parentElement ?? null)
@@ -55,9 +59,9 @@ console.log('[FoggleBet] content script loaded', window.location.href)
     for (let i = 0; i < legs.length; i++) {
       const leg = legs[i]
 
-      // Book name from div[aria-label] inside the <a>
-      const bookDiv = leg.querySelector('div[aria-label]')
-      const book = bookDiv?.getAttribute('aria-label')?.trim() ?? null
+      // Book name: use bookDivs[i] directly — do NOT re-query via leg.querySelector which
+      // can return a different element if legs[i] is a shared ancestor container.
+      const book = bookDivs[i].getAttribute('aria-label')?.trim() ?? null
       if (!book) warn(`leg ${i}: book name not found`)
 
       // Side + line from span.MuiTypography-body3 (within the <a> tag)
