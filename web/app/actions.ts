@@ -16,3 +16,22 @@ export async function deleteArb(arbId: string, _formData?: FormData): Promise<vo
 
   refresh()
 }
+
+export async function deleteTodaysBets(): Promise<{ deleted: number }> {
+  const todayStart = new Date()
+  todayStart.setUTCHours(0, 0, 0, 0)
+
+  const { data, error } = await supabase
+    .from('bets')
+    .delete()
+    .gte('recorded_at', todayStart.toISOString())
+    .select('id')
+
+  if (error) {
+    console.error('Failed to delete today\'s bets:', error)
+    throw new Error('Delete failed')
+  }
+
+  refresh()
+  return { deleted: data?.length ?? 0 }
+}

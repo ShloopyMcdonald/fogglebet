@@ -94,6 +94,9 @@ export async function GET(req: NextRequest) {
         const events = await fetchEvents(slug, eventsFrom, eventsTo, apiKey)
         eventsCache.set(slug, events)
         console.log(`[closing-odds-cron] Fetched ${events.length} events for ${slug}`)
+        if (events.length > 0) {
+          console.log(`[closing-odds-cron] First event sample:`, JSON.stringify(events[0]))
+        }
       } catch (err) {
         console.error(`[closing-odds-cron] fetchEvents failed for ${slug}:`, err)
         for (const b of slugBets) transientIds.push(b.id)
