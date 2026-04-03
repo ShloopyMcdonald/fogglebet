@@ -125,6 +125,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Database error' }, { status: 500 })
   }
 
+  // If game is within ±15min of now, trigger closing-odds lookup immediately
+  // so we don't depend on the cron happening to fire in the right window
+  const gameTime = betA.game_time ? new Date(betA.game_time).getTime() : null
+  if (gameTime != null && Math.abs(gameTime - Date.now()) < 15 * 60 * 1000) {
+    const origin = new URL(req.url).origin
+    const cronSecret = process.env.CRON_SECRET
+    fetch(`${origin}/api/cron/closing-odds`, {
+      headers: cronSecret ? { Authorization: `Bearer ${cronSecret}` } : {},
+    }).catch((err) => console.warn('[bets] background closing-odds trigger failed:', err))
+  }
+
   return NextResponse.json({ ok: true }, { status: 201 })
 }
 
