@@ -166,6 +166,7 @@ export async function GET(req: NextRequest) {
           closing_odds: result.price,
           closing_book: result.bookKey,
           closing_odds_raw: { book: result.bookKey, market: bet.market, entry: result.rawEntry },
+          closing_odds_recorded_at: now.toISOString(),
           clv,
           clv_checked: true,
         })
