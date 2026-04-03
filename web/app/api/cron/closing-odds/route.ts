@@ -83,7 +83,10 @@ export async function GET(req: NextRequest) {
   const oddsCache = new Map<number, OddsApiOddsResponse>()
 
   let captured = 0
-  const failedIds: string[] = []
+  // definitiveIds: cron ran and conclusively can't get odds — mark clv_checked so they show "n/a"
+  // transientIds:  API errors — leave clv_checked false so they retry next run
+  const definitiveIds: string[] = []
+  const transientIds: string[] = []
 
   for (const [slug, slugBets] of bySlug) {
     if (!eventsCache.has(slug)) {
@@ -93,7 +96,7 @@ export async function GET(req: NextRequest) {
         console.log(`[closing-odds-cron] Fetched ${events.length} events for ${slug}`)
       } catch (err) {
         console.error(`[closing-odds-cron] fetchEvents failed for ${slug}:`, err)
-        for (const b of slugBets) failedIds.push(b.id)
+        for (const b of slugBets) transientIds.push(b.id)
         continue
       }
     }
@@ -102,21 +105,21 @@ export async function GET(req: NextRequest) {
     for (const bet of slugBets) {
       if (!bet.line) {
         console.warn(`[closing-odds-cron] No line on bet ${bet.id}`)
-        failedIds.push(bet.id)
+        definitiveIds.push(bet.id)
         continue
       }
 
       const teams = parseTeamsFromBetName(bet.bet_name)
       if (!teams) {
         console.warn(`[closing-odds-cron] Cannot parse teams from: "${bet.bet_name}"`)
-        failedIds.push(bet.id)
+        definitiveIds.push(bet.id)
         continue
       }
 
       const event = findEvent(events, teams[0], teams[1])
       if (!event) {
-        console.warn(`[closing-odds-cron] No event match for "${bet.bet_name}"`)
-        failedIds.push(bet.id)
+        console.warn(`[closing-odds-cron] No event match for "${bet.bet_name}" (teams: "${teams[0]}" / "${teams[1]}")`)
+        definitiveIds.push(bet.id)
         continue
       }
 
@@ -128,7 +131,7 @@ export async function GET(req: NextRequest) {
           oddsCache.set(event.id, oddsResp)
         } catch (err) {
           console.error(`[closing-odds-cron] fetchEventOddsById failed for ${event.id}:`, err)
-          failedIds.push(bet.id)
+          transientIds.push(bet.id)
           continue
         }
       }
@@ -137,8 +140,7 @@ export async function GET(req: NextRequest) {
       const result = findClosingOdds(oddsResp, bet)
       if (!result) {
         console.warn(`[closing-odds-cron] No closing odds found for bet ${bet.id} — marking clv_checked`)
-        await supabase.from('bets').update({ clv_checked: true }).eq('id', bet.id)
-        failedIds.push(bet.id)
+        definitiveIds.push(bet.id)
         continue
       }
 
@@ -157,7 +159,7 @@ export async function GET(req: NextRequest) {
 
       if (updateError) {
         console.error(`[closing-odds-cron] Update failed for bet ${bet.id}:`, updateError)
-        failedIds.push(bet.id)
+        transientIds.push(bet.id)
       } else {
         console.log(
           `[closing-odds-cron] Captured closing odds for bet ${bet.id}: ` +
@@ -168,9 +170,15 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // Batch-mark definitive failures as checked so dashboard shows "n/a" not "—"
+  if (definitiveIds.length > 0) {
+    await supabase.from('bets').update({ clv_checked: true }).in('id', definitiveIds)
+  }
+
   return NextResponse.json({
     captured,
     total: bets.length,
-    ...(failedIds.length > 0 && { missed: failedIds }),
+    ...(definitiveIds.length > 0 && { definitive_misses: definitiveIds }),
+    ...(transientIds.length > 0 && { transient_errors: transientIds }),
   })
 }
