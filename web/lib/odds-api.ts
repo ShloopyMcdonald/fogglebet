@@ -261,6 +261,7 @@ export async function fetchEvents(
     sport: sportSlug,
     from,
     to,
+    status: 'pending,live',
   })
   if (leagueSlug) {
     params.set('league', leagueSlug)
