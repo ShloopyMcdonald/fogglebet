@@ -219,7 +219,12 @@ function normalize(s: string): string {
 function teamMatchesName(keyword: string, teamName: string): boolean {
   const kw = normalize(keyword)
   const tn = normalize(teamName)
-  return tn === kw || tn.includes(kw) || kw.includes(tn)
+  if (tn === kw || tn.includes(kw) || kw.includes(tn)) return true
+  // Word-level fallback for tennis player names stored as "Lastname, F" on PTO.
+  // "djokovic n" vs "novak djokovic" → "djokovic" (len>2) appears in "novak djokovic".
+  const kwWords = kw.split(' ').filter(w => w.length > 2)
+  const tnWords = tn.split(' ').filter(w => w.length > 2)
+  return kwWords.some(w => tn.includes(w)) || tnWords.some(w => kw.includes(w))
 }
 
 // Parse odds string (e.g. "1.91") → number, returns null for "N/A" or invalid.
