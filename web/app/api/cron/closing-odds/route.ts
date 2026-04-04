@@ -116,7 +116,11 @@ export async function GET(req: NextRequest) {
   // sport+league combo gets exactly one /events fetch.
   const bySlug = new Map<string, { sportSlug: string; leagueSlug: string | null; bets: Bet[] }>()
   for (const bet of bets) {
-    if (!bet.sport || !bet.market) continue
+    if (!bet.sport || !bet.market) {
+      console.warn(`[closing-odds-cron] Bet ${bet.id} missing sport="${bet.sport}" or market="${bet.market}" — marking definitive`)
+      await supabase.from('bets').update({ clv_checked: true }).eq('id', bet.id)
+      continue
+    }
     const sportSlug = toSportSlug(bet.sport)
     if (!sportSlug) {
       console.warn(`[closing-odds-cron] No odds-api slug for sport: "${bet.sport}" (bet ${bet.id})`)
