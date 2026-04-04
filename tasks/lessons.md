@@ -151,7 +151,17 @@ true_fav_prob = b0 / (1 + b0)
 
 **Full CLV simulation test passed:** fetchEvents → findEvent (team name match) → fetchEventOddsById → findClosingOdds all work correctly end-to-end.
 
+**CRITICAL: fetchEvents must include `status=pending,live`** — the API defaults to pending-only. NBA games that went live before the cron fired were invisible to `findEvent`, producing "No event match" for every NBA bet. Fix: always pass `status=pending,live` to the events endpoint.
+
 **Root cause of "CLV not working at all":** All bets in DB have closing_odds=null despite correct code. Issue is environmental — check: (1) `ODDS_API_KEY` set in Vercel env vars, (2) `CRON_SECRET` matches between GitHub Actions secret and Vercel, (3) GitHub Actions workflow enabled and not failing on every run.
+
+---
+
+## NBA prop names with diacritics cause extractPropOdds to miss
+
+**Bug:** `normalize()` used `replace(/[^a-z0-9 ]/g, '')` which strips diacritic chars entirely — "Jokić" became "joki" while the bet's parsed lastName "Jokic" normalized to "jokic". `"jokic".includes("joki")` is true but the comparison goes the other way (`labelNorm.includes(lastNameNorm)`), so `"nikola joki points".includes("jokic")` = false. All props for Jokić, Dončić, etc. failed silently.
+
+**Fix:** Apply `s.normalize('NFD').replace(/[\u0300-\u036f]/g, '')` before lowercasing. NFD decomposes "ć" → "c" + combining accent, then the accent strip removes the combining char, leaving "c". Now "Jokić" normalizes to "jokic" correctly.
 
 ---
 
