@@ -35,13 +35,18 @@ export async function GET(req: NextRequest) {
 
   // Pre-game capture windows per sport (minutes before game start).
   // Fetch with the widest window, then filter per-bet below.
+  // NBA/NHL: PTO game_time is ~10 min after actual scheduled start on odds-api.io.
+  // odds-api.io transitions to "live" (bookmakers: {}) at the scheduled start, not PTO's time.
+  // NBA: 25 min window → cron fires at game_time-25min = actual_start-15min → 15-min capture buffer.
+  // NHL: 20 min window → 10-min buffer before actual start.
+  // MLB: 5 min window (PTO game_time aligns closely with actual start).
   const SPORT_WINDOWS_MINUTES: Record<string, number> = {
-    nba: 12,
-    nhl: 12,
-    mlb: 2,
+    nba: 25,
+    nhl: 20,
+    mlb: 5,
   }
-  const DEFAULT_WINDOW_MINUTES = 5
-  const MAX_WINDOW_MINUTES = 12 // must equal the largest value above
+  const DEFAULT_WINDOW_MINUTES = 10
+  const MAX_WINDOW_MINUTES = 25 // must equal the largest value above
 
   function preGameWindowMinutes(sport: string): number {
     const normalized = sport.toLowerCase().replace(/\s*\([^)]*\)\s*$/, '').trim()

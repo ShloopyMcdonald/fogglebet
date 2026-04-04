@@ -4,6 +4,16 @@ _Permanent log of bugs, corrections, and decisions. Updated after every user cor
 
 ---
 
+## PTO NBA game_time is ~10 min after actual scheduled start; odds-api.io goes live at scheduled start
+
+**Bug:** NBA CLV was never captured. PTO stores game_time as ~10 minutes after the actual scheduled start (e.g. game at 19:00 UTC → PTO stores 19:10). odds-api.io transitions games from "pending" to "live" at the actual scheduled start (19:00), and live/settled games return `bookmakers: {}`. With a 12-min pre-game window, the cron first became eligible at `19:10 - 12min = 18:58` — only a 2-minute window before the game went live at 19:00. NHL had a 6-minute window (game_time offset ~6 min); MLB aligned closely. The narrow NBA window was nearly impossible to hit.
+
+**Fix:** NBA pre-game window increased to 25 min (15-min buffer before actual start), NHL to 20 min.
+
+**Key fact:** Live AND settled games both return `bookmakers: {}` on odds-api.io. Closing odds must be captured while game status is still "pending".
+
+---
+
 ## isFeaturedMarket misclassified "Total Bases" and other "Total *" player props
 
 **Bug:** `isFeaturedMarket` used `market.startsWith('Total ')` to detect game totals. This matched player prop markets like `"Total Bases - Soto, J"`, routing them to the game-totals handler which returned null. Every Total Bases bet had null CLV.
