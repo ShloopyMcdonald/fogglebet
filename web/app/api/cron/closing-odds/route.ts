@@ -150,9 +150,15 @@ export async function GET(req: NextRequest) {
         const events = await fetchEvents(sportSlug, eventsFrom, eventsTo, apiKey, leagueSlug ?? undefined)
         eventsCache.set(cacheKey, events)
         const label = leagueSlug ? `${sportSlug}/${leagueSlug}` : sportSlug
-        console.log(`[closing-odds-cron] Fetched ${events.length} events for ${label}`)
-        if (events.length > 0) {
-          console.log(`[closing-odds-cron] First event sample:`, JSON.stringify(events[0]))
+        console.log(`[closing-odds-cron] Fetched ${events.length} events for ${label} (window: ${eventsFrom} → ${eventsTo})`)
+        // Log all events for this sport so we can verify which games are visible
+        for (const ev of events) {
+          console.log(
+            `[closing-odds-cron]   event id=${ev.id} "${ev.away} @ ${ev.home}" status=${ev.status} date=${ev.date}`
+          )
+        }
+        if (events.length === 0) {
+          console.warn(`[closing-odds-cron] WARNING: 0 events returned for ${label} — bets on this sport will all miss`)
         }
       } catch (err) {
         console.error(`[closing-odds-cron] fetchEvents failed for ${sportSlug}:`, err)
@@ -183,9 +189,9 @@ export async function GET(req: NextRequest) {
         continue
       }
 
-      const event = findEvent(events, teams[0], teams[1])
+      const event = findEvent(events, teams[0], teams[1], bet.id)
       if (!event) {
-        console.warn(`[closing-odds-cron] No event match for "${bet.bet_name}" (teams: "${teams[0]}" / "${teams[1]}")`)
+        // findEvent already logged the full details
         definitiveIds.push(bet.id)
         continue
       }
