@@ -48,8 +48,12 @@ export async function GET(req: NextRequest) {
     return SPORT_WINDOWS_MINUTES[normalized] ?? DEFAULT_WINDOW_MINUTES
   }
 
-  // Fetch a bit behind game time too, to catch cron runs that fire slightly after start
-  const windowStart = new Date(now.getTime() - 5 * 60 * 1000).toISOString()
+  // Retroactive window: 60 min behind game_time catches bets missed by delayed cron runs.
+  // Forward window: per-sport pre-game cutoff (NBA/NHL: 12 min, MLB: 2 min, others: 5 min).
+  // Without every-minute cron firing, a narrow retroactive window permanently misses games
+  // that fall between cron fires.
+  const RETROACTIVE_MINUTES = 60
+  const windowStart = new Date(now.getTime() - RETROACTIVE_MINUTES * 60 * 1000).toISOString()
   const windowEnd = new Date(now.getTime() + MAX_WINDOW_MINUTES * 60 * 1000).toISOString()
 
   const { data, error: fetchError } = await supabase
@@ -66,12 +70,16 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Database error' }, { status: 500 })
   }
 
-  // Filter: each bet must be within its sport's pre-game window
+  // Filter: each bet must be within its sport's pre-game window (forward),
+  // OR already past game start (retroactive catch for delayed cron runs).
   const bets = ((data ?? []) as Bet[]).filter(bet => {
     if (!bet.game_time || !bet.sport) return true
+    const gameTime = new Date(bet.game_time)
+    // Already started — include it (retroactive catch)
+    if (gameTime <= now) return true
+    // Not yet started — apply per-sport pre-game window
     const windowMs = preGameWindowMinutes(bet.sport) * 60 * 1000
-    const cutoff = new Date(now.getTime() + windowMs)
-    return new Date(bet.game_time) <= cutoff
+    return gameTime <= new Date(now.getTime() + windowMs)
   })
   if (bets.length === 0) {
     return NextResponse.json({ captured: 0, total: 0 })
