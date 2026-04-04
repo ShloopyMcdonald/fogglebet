@@ -211,7 +211,9 @@ export const PROP_STAT_LABEL_MAP: Record<string, string> = {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function normalize(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim()
+  // NFD decomposition converts accented chars (ć→c+◌́, č→c+◌̌, etc.) then strip combining marks
+  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim()
 }
 
 function teamMatchesName(keyword: string, teamName: string): boolean {
@@ -259,7 +261,6 @@ export async function fetchEvents(
     sport: sportSlug,
     from,
     to,
-    status: 'pending,live',
   })
   if (leagueSlug) {
     params.set('league', leagueSlug)
@@ -398,7 +399,16 @@ function extractPropOdds(
     const labelStat = normalize(parenMatch[1])
     return labelNorm.includes(lastNameNorm) && labelStat === statNorm
   })
-  if (!entry) return null
+  if (!entry) {
+    // Log a sample of available labels (first 5 at this hdp) to aid debugging
+    const atHdp = oddsArr.filter(o => o.hdp != null && Math.abs(o.hdp - lineValue) < 0.1)
+    const sampleLabels = atHdp.slice(0, 5).map(o => o.label ?? '(no label)')
+    console.warn(
+      `[odds-api] extractPropOdds no match: lastName="${lastName}" norm="${lastNameNorm}" stat="${statLabelStr}" hdp=${lineValue}; ` +
+      `${atHdp.length} entries at that hdp. Sample labels: ${JSON.stringify(sampleLabels)}`
+    )
+    return null
+  }
 
   const ourP = parseDecimalOdds(direction === 'over' ? entry.over : entry.under)
   const oppP = parseDecimalOdds(direction === 'over' ? entry.under : entry.over)

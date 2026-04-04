@@ -90,7 +90,13 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ captured: 0, total: 0 })
   }
 
-  console.log(`[closing-odds-cron] Found ${bets.length} bets in window`)
+  // Debug: log bet counts by sport
+  const betsBySport: Record<string, number> = {}
+  for (const b of bets) {
+    const s = (b.sport ?? 'unknown').toLowerCase()
+    betsBySport[s] = (betsBySport[s] ?? 0) + 1
+  }
+  console.log(`[closing-odds-cron] Found ${bets.length} bets in window:`, JSON.stringify(betsBySport))
 
   function normalizeSport(sport: string): string {
     return sport.toLowerCase().replace(/\s*\([^)]*\)\s*$/, '').trim()
@@ -153,6 +159,13 @@ export async function GET(req: NextRequest) {
     const events = eventsCache.get(cacheKey)!
 
     for (const bet of slugBets) {
+      const isNba = (bet.sport ?? '').toLowerCase() === 'nba'
+      if (isNba) {
+        console.log(
+          `[closing-odds-cron][NBA] bet ${bet.id}: market="${bet.market}" line="${bet.line}" game_time="${bet.game_time}" bet_name="${bet.bet_name}"`
+        )
+      }
+
       if (!bet.line) {
         console.warn(`[closing-odds-cron] No line on bet ${bet.id}`)
         definitiveIds.push(bet.id)
@@ -173,12 +186,22 @@ export async function GET(req: NextRequest) {
         continue
       }
 
+      if (isNba) {
+        console.log(`[closing-odds-cron][NBA] bet ${bet.id}: matched event id=${event.id} "${event.away} @ ${event.home}" status=${event.status}`)
+      }
+
       // Fetch full odds for this event — cached so two bets on the same game share one call
       if (!oddsCache.has(event.id)) {
         try {
           const allBooks = [...new Set([...SHARP_BOOK_PRIORITY, ...PROP_BOOK_PRIORITY])]
           const oddsResp = await fetchEventOddsById(event.id, allBooks, apiKey)
           oddsCache.set(event.id, oddsResp)
+          if (isNba) {
+            const books = Object.keys(oddsResp.bookmakers)
+            const marketNames = books.flatMap(b => (oddsResp.bookmakers[b] ?? []).map(m => m.name))
+            const uniqueMarkets = [...new Set(marketNames)]
+            console.log(`[closing-odds-cron][NBA] event ${event.id} bookmakers=[${books.join(',')}] markets=[${uniqueMarkets.join(',')}]`)
+          }
         } catch (err) {
           console.error(`[closing-odds-cron] fetchEventOddsById failed for ${event.id}:`, err)
           transientIds.push(bet.id)
@@ -189,7 +212,11 @@ export async function GET(req: NextRequest) {
 
       const result = findClosingOdds(oddsResp, bet)
       if (!result) {
-        console.warn(`[closing-odds-cron] No closing odds found for bet ${bet.id} — marking clv_checked`)
+        if (isNba) {
+          console.warn(`[closing-odds-cron][NBA] bet ${bet.id}: findClosingOdds returned null — marking definitive miss`)
+        } else {
+          console.warn(`[closing-odds-cron] No closing odds found for bet ${bet.id} — marking clv_checked`)
+        }
         definitiveIds.push(bet.id)
         continue
       }
