@@ -156,8 +156,8 @@ export const ODDS_API_LEAGUE_SLUGS: Record<string, string | null> = {
 // Circa is the sharpest available, then BetOnline.ag, then FanDuel as fallback.
 export const SHARP_BOOK_PRIORITY = ['Circa', 'BetOnline.ag', 'FanDuel']
 
-// Priority order for prop markets: FanDuel (best coverage) → Circa → DraftKings.
-export const PROP_BOOK_PRIORITY = ['FanDuel', 'Circa', 'DraftKings']
+// Priority order for prop markets: Circa (sharpest) → FanDuel → DraftKings.
+export const PROP_BOOK_PRIORITY = ['Circa', 'FanDuel', 'DraftKings']
 
 // picktheodds stat type → string that appears in the odds-api.io label parentheses,
 // e.g. "Points - Doncic, L" → statType "Points" → label contains "(Points)".
@@ -186,20 +186,26 @@ export const PROP_STAT_LABEL_MAP: Record<string, string> = {
   'Receiving Yards': 'Receiving Yards',
   Receptions:        'Receptions',
   'Receiving TDs':   'Receiving Touchdowns',
-  // Baseball
-  Strikeouts:        'Strikeouts',
-  Hits:              'Hits',
+  // Baseball — batter props (labels verified against odds-api.io MLB response 2026-04-05)
   'Home Runs':       'Home Runs',
-  RBIs:              'RBIs',
   'Total Bases':     'Total Bases',
+  Hits:              'Hits',
   Runs:              'Runs Scored',
+  RBIs:              'Runs Batted In',
+  Singles:           'Singles',
+  Doubles:           'Doubles',
+  Triples:           'Triples',
+  'Stolen Bases':    'Stolen Bases',
+  'Hits + Runs + RBIs': 'Hits+Runs+RBIs',
+  'Batter Strikeouts':  'Batter Strikeouts',
+  'Batter Walks':       'Batter Walks',
   // Baseball — pitcher props
-  // Label names verified against FanDuel via odds-api.io; update if live responses differ.
-  'Pitcher Strikeouts':   'Pitcher Strikeouts',
+  Strikeouts:             'Total Strikeouts',
+  'Pitcher Strikeouts':   'Total Strikeouts',
   'Pitcher Allowed Hits': 'Hits Allowed',
   'Pitcher Earned Runs':  'Earned Runs',
   'Pitcher Walks':        'Walks',
-  'Pitcher Earned Outs':  'Outs Recorded',
+  'Pitcher Earned Outs':  'Pitching Outs',
   'Pitcher Home Runs':    'Home Runs Allowed',
   // Hockey
   Goals:             'Goals',
@@ -593,7 +599,7 @@ export function findClosingOdds(
     `event="${oddsResp.away} @ ${oddsResp.home}" status=${oddsResp.status} books=[${allBooks.join(', ')}]`
   )
 
-  // ── Player props: FanDuel → Circa → DraftKings ──────────────────────────────
+  // ── Player props: Circa → FanDuel → DraftKings ──────────────────────────────
   if (!isFeaturedMarket(bet.market)) {
     const parsed = parsePropMarketStr(bet.market)
     if (!parsed) {
