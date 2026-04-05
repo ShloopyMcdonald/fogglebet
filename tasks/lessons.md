@@ -180,3 +180,27 @@ true_fav_prob = b0 / (1 + b0)
 **Bug:** In `handleLogClick` and `postBets`, odds for a given book+leg were looked up as `sides[sideLabel] ?? sides[Object.keys(sides)[i]]`. If a book (e.g. ProphetX) only offered odds on one side (e.g. Under), the fallback assigned those Under odds to the Over leg (index 0) because `Object.keys(sides)[0]` was "Under".
 
 **Fix:** Remove the index-based fallback entirely. Use `sides[sideLabel] ?? null`. If a book has no odds for a side label, it simply won't appear for that leg.
+
+---
+
+## Historical bets with no CLV must be batch-marked clv_checked=true manually
+
+**Context:** The closing-odds cron only processes bets with game_time within `[now-60min, now+25min]`. Any bet whose game_time has passed more than 60 minutes ago will NEVER be queried again — it's permanently outside the cron window.
+
+**Discovery:** 1,014 bets across all sports (NBA: 594, MLB: 170, NHL: 146, Tennis: 50, NCAAB: 36) were stuck `clv_checked=false, closing_odds=null` because their games had ended weeks/days before the cron system was fully functional. The dashboard showed "-" for CLV instead of "n/a" for all of them.
+
+**Root cause:** Before cron-job.org was configured and `status=pending,live` was added to fetchEvents, the cron couldn't capture CLV for live/settled games. Those historical bets are stuck forever outside the cron window.
+
+**Fix:** One-time batch update: `UPDATE bets SET clv_checked=true WHERE clv_checked=false AND closing_odds IS NULL AND game_time < (now - 2h)`. This marks them as definitive misses so the dashboard shows "n/a".
+
+**Ongoing:** The cron itself is working correctly. Tonight's bets (game_time in the future) will get CLV captured automatically at game time. If the cron is ever down for an extended period, run the batch update again to clean up stuck bets.
+
+---
+
+## Vercel Hobby plan log retention is ~1-2 hours only
+
+**Discovery:** `vercel logs --since 19h` only returned logs from the last ~30 minutes despite the large `--since` parameter. The `--limit` parameter caps total entries, and with every-minute cron fires, 500-2000 entries ≈ 30-60 minutes of history.
+
+**Impact:** Cannot debug last night's cron failures via Vercel logs. Must use local dev server or Supabase DB state to infer cron behavior.
+
+**Workaround:** For debugging a specific cron run, temporarily set a bet's game_time to be in the current window, then observe the DB state change immediately after (the Vercel cron fires within 1 minute of the game_time entering the window).
