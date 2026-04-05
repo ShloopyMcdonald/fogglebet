@@ -293,11 +293,19 @@ describe('Basketball player props', () => {
     expect(r).toBeNull()
   })
 
-  test('FanDuel missing from response — returns null', () => {
+  test('FanDuel missing — falls back to Circa per PROP_BOOK_PRIORITY', () => {
     const ev = makeEvent('Mavericks', 'Lakers', {
       Circa: [propMarket([{ label: 'Luka Doncic (Points)', hdp: 33.5, over: '1.91', under: '1.91' }])],
     })
-    // Props always use FanDuel; Circa won't be used
+    const r = findClosingOdds(ev, bet('Points - Doncic, L', 'Over 33.5'))
+    expect(r).not.toBeNull()
+    expect(r!.bookKey).toBe('Circa')
+  })
+
+  test('no book in PROP_BOOK_PRIORITY present — returns null', () => {
+    const ev = makeEvent('Mavericks', 'Lakers', {
+      SomeOtherBook: [propMarket([{ label: 'Luka Doncic (Points)', hdp: 33.5, over: '1.91', under: '1.91' }])],
+    })
     const r = findClosingOdds(ev, bet('Points - Doncic, L', 'Over 33.5'))
     expect(r).toBeNull()
   })
@@ -393,6 +401,28 @@ describe('Baseball player props — pitcher', () => {
   test.each(pitcherProps)('pitcher: "%s"', (statType, label) => {
     const ev = mlbEvent(label, 6.5)
     const r = findClosingOdds(ev, bet(`${statType} - Cole, G`, 'Over 6.5'))
+    expect(r).not.toBeNull()
+  })
+})
+
+// ── Diacritic player names ────────────────────────────────────────────────────
+
+describe('Diacritic player names', () => {
+  // PTO stores names without diacritics ("Jokic"), odds-api labels use them ("Jokić").
+  // normalize() must use NFD decomposition so both reduce to the same string.
+  test('Jokić (ć) matched by "Jokic" from PTO', () => {
+    const ev = makeEvent('Nuggets', 'Heat', {
+      FanDuel: [propMarket([{ label: 'Nikola Jokić (Points)', hdp: 28.5, over: '1.91', under: '1.91' }])],
+    })
+    const r = findClosingOdds(ev, bet('Points - Jokic, N', 'Over 28.5'))
+    expect(r).not.toBeNull()
+  })
+
+  test('Dončić (č) matched by "Doncic" from PTO', () => {
+    const ev = makeEvent('Mavericks', 'Lakers', {
+      FanDuel: [propMarket([{ label: 'Luka Dončić (Points)', hdp: 33.5, over: '1.91', under: '1.91' }])],
+    })
+    const r = findClosingOdds(ev, bet('Points - Doncic, L', 'Over 33.5'))
     expect(r).not.toBeNull()
   })
 })

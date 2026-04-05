@@ -268,7 +268,9 @@ export async function fetchGameSummary(
 // ── Team Matching ─────────────────────────────────────────────────────────────
 
 function normalize(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim()
+  // NFD decomposition converts accented chars (é→e+combining, ü→u+combining) then strip marks
+  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim()
 }
 
 function teamMatches(espnTeam: EspnTeam, keyword: string): boolean {
