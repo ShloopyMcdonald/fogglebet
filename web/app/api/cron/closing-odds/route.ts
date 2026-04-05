@@ -61,6 +61,8 @@ export async function GET(req: NextRequest) {
   const windowStart = new Date(now.getTime() - RETROACTIVE_MINUTES * 60 * 1000).toISOString()
   const windowEnd = new Date(now.getTime() + MAX_WINDOW_MINUTES * 60 * 1000).toISOString()
 
+  console.log(`[closing-odds-cron] now=${now.toISOString()} DB window: ${windowStart} → ${windowEnd}`)
+
   const { data, error: fetchError } = await supabase
     .from('bets')
     .select('*')
@@ -77,7 +79,8 @@ export async function GET(req: NextRequest) {
 
   // Filter: each bet must be within its sport's pre-game window (forward),
   // OR already past game start (retroactive catch for delayed cron runs).
-  const bets = ((data ?? []) as Bet[]).filter(bet => {
+  const allDbBets = (data ?? []) as Bet[]
+  const bets = allDbBets.filter(bet => {
     if (!bet.game_time || !bet.sport) return true
     const gameTime = new Date(bet.game_time)
     // Already started — include it (retroactive catch)
@@ -86,6 +89,7 @@ export async function GET(req: NextRequest) {
     const windowMs = preGameWindowMinutes(bet.sport) * 60 * 1000
     return gameTime <= new Date(now.getTime() + windowMs)
   })
+  console.log(`[closing-odds-cron] DB returned ${allDbBets.length} bets; ${bets.length} passed sport-window filter`)
   if (bets.length === 0) {
     return NextResponse.json({ captured: 0, total: 0 })
   }
@@ -111,6 +115,7 @@ export async function GET(req: NextRequest) {
   // Time window for /events: cover ±2h around now to catch all games starting soon
   const eventsFrom = new Date(now.getTime() - 2 * 60 * 60 * 1000).toISOString()
   const eventsTo = new Date(now.getTime() + 2 * 60 * 60 * 1000).toISOString()
+  console.log(`[closing-odds-cron] events window: ${eventsFrom} → ${eventsTo}`)
 
   // Group all bets (featured + props) by "sportSlug|leagueSlug" so each unique
   // sport+league combo gets exactly one /events fetch.
@@ -170,9 +175,13 @@ export async function GET(req: NextRequest) {
 
     for (const bet of slugBets) {
       const isNba = (bet.sport ?? '').toLowerCase() === 'nba'
+      const teams = parseTeamsFromBetName(bet.bet_name)
+
       if (isNba) {
         console.log(
-          `[closing-odds-cron][NBA] bet ${bet.id}: market="${bet.market}" line="${bet.line}" game_time="${bet.game_time}" bet_name="${bet.bet_name}"`
+          `[closing-odds-cron][NBA] bet ${bet.id}: market="${bet.market}" line="${bet.line}" ` +
+          `game_time="${bet.game_time}" bet_name="${bet.bet_name}" ` +
+          `→ parsed teams: ${teams ? `"${teams[0]}" vs "${teams[1]}"` : 'null (parse failed)'}`
         )
       }
 
@@ -182,7 +191,6 @@ export async function GET(req: NextRequest) {
         continue
       }
 
-      const teams = parseTeamsFromBetName(bet.bet_name)
       if (!teams) {
         console.warn(`[closing-odds-cron] Cannot parse teams from: "${bet.bet_name}"`)
         definitiveIds.push(bet.id)

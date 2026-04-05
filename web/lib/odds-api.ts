@@ -277,12 +277,20 @@ export async function fetchEvents(
     // Without a league filter the result set can be large; cap at 200 as a safety net.
     params.set('limit', '200')
   }
+  // Log sanitized URL (key redacted) so Vercel logs show exact params sent
+  const debugParams = new URLSearchParams(params)
+  debugParams.set('apiKey', 'REDACTED')
+  const label = leagueSlug ? `${sportSlug}/${leagueSlug}` : sportSlug
+  console.log(`[odds-api] fetchEvents ${label} → ${ODDS_API_IO_BASE}/events?${debugParams}`)
+
   const res = await fetch(`${ODDS_API_IO_BASE}/events?${params}`, { cache: 'no-store' })
   if (!res.ok) {
     const text = await res.text()
-    throw new Error(`[odds-api] fetchEvents ${sportSlug}${leagueSlug ? `/${leagueSlug}` : ''} failed ${res.status}: ${text}`)
+    throw new Error(`[odds-api] fetchEvents ${label} failed ${res.status}: ${text}`)
   }
-  return res.json() as Promise<OddsApiEvent[]>
+  const events = await res.json() as OddsApiEvent[]
+  console.log(`[odds-api] fetchEvents ${label} → ${events.length} events returned`)
+  return events
 }
 
 // Returns full odds (all markets) for a single event from the specified bookmakers.
@@ -635,7 +643,10 @@ export function findClosingOdds(
 
   for (const bookName of bookOrder) {
     const bmMarkets = oddsResp.bookmakers[bookName]
-    if (!bmMarkets) continue
+    if (!bmMarkets) {
+      console.log(`[odds-api] [bet ${id}] featured: ${bookName} not in response — skipping`)
+      continue
+    }
 
     const result = extractFeaturedOddsFromBookmaker(oddsResp, bmMarkets, bet, bookName)
     if (!result) continue
@@ -648,8 +659,14 @@ export function findClosingOdds(
     return { ...result, bookKey: bookName }
   }
 
+  // Log what each book actually had so we can diagnose the miss
+  const bookDump = bookOrder.map(b => {
+    const mkts = oddsResp.bookmakers[b]
+    return mkts ? `${b}:[${mkts.map(m => m.name).join(',')}]` : `${b}:absent`
+  }).join(' | ')
   console.warn(
-    `[odds-api] [bet ${id}] No closing odds found for "${bet.market}" / "${bet.line}" in any of [${bookOrder.join(', ')}]`
+    `[odds-api] [bet ${id}] No closing odds found for market="${bet.market}" line="${bet.line}". ` +
+    `Books: ${bookDump}`
   )
   return null
 }
