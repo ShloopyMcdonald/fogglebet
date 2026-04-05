@@ -629,6 +629,37 @@ console.log('[FoggleBet] content script loaded', window.location.href)
     return result
   }
 
+  // ─── Leg book-assignment validator ───────────────────────────────────────
+  // PTO sometimes displays a moneyline arb with books on the "wrong" sides: e.g.
+  // it shows NoVig/Seattle and Bookmaker/LA, but the actual arb position is
+  // Bookmaker/Seattle and NoVig/LA (because Bookmaker offers +163 vs NoVig's +151).
+  // In a valid arb, each book should have the BEST odds for the side it's assigned.
+  // If leg1.book offers better American odds for leg0.side_label than leg0.book does,
+  // the books are swapped — keep side_labels in place, swap book/href/bookImgAlt.
+
+  function fixLegBookAssignment(legs, book_odds) {
+    if (legs.length < 2) return legs
+    const leg0 = legs[0], leg1 = legs[1]
+    if (!leg0.book || !leg1.book || !leg0.side_label || !leg1.side_label) return legs
+    if (leg0.side_label === leg1.side_label) return legs
+
+    const book0Side0 = book_odds[leg0.book]?.[leg0.side_label]?.odds
+    const book1Side0 = book_odds[leg1.book]?.[leg0.side_label]?.odds
+    if (book0Side0 == null || book1Side0 == null) return legs
+
+    // Higher American odds = better for the bettor (+163 > +151, -151 > -181)
+    if (book1Side0 > book0Side0) {
+      console.log('[FoggleBet] fixLegBookAssignment — swapping book assignment', {
+        side: leg0.side_label, was: leg0.book + ' ' + book0Side0, now: leg1.book + ' ' + book1Side0,
+      })
+      return [
+        { ...leg0, book: leg1.book, bookImgAlt: leg1.bookImgAlt, href: leg1.href },
+        { ...leg1, book: leg0.book, bookImgAlt: leg0.bookImgAlt, href: leg0.href },
+      ]
+    }
+    return legs
+  }
+
   // ─── Book-odds side-order validator ──────────────────────────────────────
   // For moneylines the expanded table renders buttons in game order (home/away),
   // which can differ from the compact leg DOM order. Spreads are corrected by the
@@ -712,6 +743,10 @@ console.log('[FoggleBet] content script loaded', window.location.href)
     // Must run before enrichment so we don't overwrite correct compact odds with swapped values.
     const compactOdds = arbData.legs.map(l => l.odds)
     arbData.book_odds = fixBookOddsSideOrder(arbData.book_odds, arbData.legs, compactOdds)
+
+    // Fix leg book-assignment: ensure each leg uses the book with best odds for its side.
+    // PTO sometimes shows books on the "wrong" sides in the compact view.
+    arbData.legs = fixLegBookAssignment(arbData.legs, arbData.book_odds)
 
     // Enrich each leg's odds + liquidity from book_odds
     arbData.legs = arbData.legs.map((leg, i) => {

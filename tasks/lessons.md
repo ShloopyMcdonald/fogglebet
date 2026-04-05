@@ -204,3 +204,13 @@ true_fav_prob = b0 / (1 + b0)
 **Impact:** Cannot debug last night's cron failures via Vercel logs. Must use local dev server or Supabase DB state to infer cron behavior.
 
 **Workaround:** For debugging a specific cron run, temporarily set a bet's game_time to be in the current window, then observe the DB state change immediately after (the Vercel cron fires within 1 minute of the game_time entering the window).
+
+---
+
+## PTO sometimes shows moneyline arb books on the wrong sides (book-assignment swap)
+
+**Bug:** For a moneyline arb between two books (e.g. NoVig and Bookmaker on Seattle vs LA), PTO's compact leg display sometimes shows them on the wrong sides. It might render "NoVig / Seattle" and "Bookmaker / LA", when the actual arb positions are "Bookmaker / Seattle" (better odds: +163) and "NoVig / LA" (better odds: -151). The existing `fixBookOddsSideOrder` didn't catch this — it only fixes **side-key ordering within a book's table column**, not which **book** is on which **side**. Since `book_odds["NoVig"]["Seattle"] = +151` matched the compact odds (+151), it concluded "already correct."
+
+**Fix:** Added `fixLegBookAssignment(legs, book_odds)` which runs after `fixBookOddsSideOrder` and before enrichment. It checks if `leg1.book` offers better American odds for `leg0.side_label` than `leg0.book` does. If so, it swaps `book`, `bookImgAlt`, and `href` between the two legs (side_labels stay in place). Higher American odds = better for the bettor (+163 > +151, -151 > -181).
+
+**Key distinction:** `fixBookOddsSideOrder` = fixes side label order within book_odds. `fixLegBookAssignment` = fixes which book is assigned to which leg.
