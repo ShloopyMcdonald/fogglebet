@@ -111,7 +111,7 @@ export const ODDS_API_LEAGUE_SLUGS: Record<string, string | null> = {
   nba:                     'usa-nba',
   ncaab:                   'usa-ncaa-division-i-national-championship',
   wnba:                    null,   // off-season; slug TBD when season starts
-  basketball:              null,
+  basketball:              'usa-nba',  // PTO shows "Basketball" (not "NBA") for NBA games
   // American Football
   nfl:                     null,   // off-season; slug TBD
   ncaaf:                   null,
