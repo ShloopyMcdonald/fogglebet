@@ -261,11 +261,14 @@ export async function fetchEvents(
   apiKey: string,
   leagueSlug?: string
 ): Promise<OddsApiEvent[]> {
+  // odds-api.io requires RFC3339 without milliseconds (T17:00:00Z not T17:00:00.000Z)
+  const fromRfc = from.replace(/\.\d{3}Z$/, 'Z')
+  const toRfc = to.replace(/\.\d{3}Z$/, 'Z')
   const params = new URLSearchParams({
     apiKey,
     sport: sportSlug,
-    from,
-    to,
+    from: fromRfc,
+    to: toRfc,
     status: 'pending,live',
   })
   if (leagueSlug) {

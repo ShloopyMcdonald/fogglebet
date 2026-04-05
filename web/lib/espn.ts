@@ -285,11 +285,18 @@ function teamMatches(espnTeam: EspnTeam, keyword: string): boolean {
 }
 
 export function parseTeamsFromBetName(betName: string): [string, string] | null {
-  // bet_name format: "team1 vs team2 — market — sideLabel"
+  // bet_name formats:
+  //   featured: "Team1 vs Team2" or "Team1 vs Team2 — market — sideLabel"
+  //   prop:     "Team1 vs Team2 - StatType - Player, I - Direction Value"
   const firstSegment = betName.split(' \u2014 ')[0] // before first em-dash
   const vsParts = firstSegment.split(' vs ')
   if (vsParts.length < 2) return null
-  return [vsParts[0].trim(), vsParts.slice(1).join(' vs ').trim()]
+  const team1 = vsParts[0].trim()
+  // team2 may have prop info appended with " - " (regular dash); strip it
+  const team2Raw = vsParts.slice(1).join(' vs ').trim()
+  const dashIdx = team2Raw.indexOf(' - ')
+  const team2 = dashIdx !== -1 ? team2Raw.slice(0, dashIdx).trim() : team2Raw
+  return [team1, team2]
 }
 
 export function findGame(games: EspnGame[], team1: string, team2: string): EspnGame | null {
