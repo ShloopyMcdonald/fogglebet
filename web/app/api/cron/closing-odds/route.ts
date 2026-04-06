@@ -127,8 +127,8 @@ export async function GET(req: NextRequest) {
       await supabase.from('bets').update({ clv_checked: true }).eq('id', bet.id)
       continue
     }
-    const leagueSlug = toLeagueSlug(bet.sport)
-    console.log(`[closing-odds-cron] sport="${bet.sport}" → sportSlug="${sportSlug}" leagueSlug="${leagueSlug}"`)
+    // Basketball always uses usa-nba regardless of how the sport is stored
+    const leagueSlug = sportSlug === 'basketball' ? 'usa-nba' : toLeagueSlug(bet.sport)
     const key = `${sportSlug}|${leagueSlug ?? ''}`
     const group = bySlug.get(key) ?? { sportSlug, leagueSlug, bets: [] }
     group.bets.push(bet)
