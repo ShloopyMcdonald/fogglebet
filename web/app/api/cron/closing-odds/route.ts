@@ -127,8 +127,9 @@ export async function GET(req: NextRequest) {
       await supabase.from('bets').update({ clv_checked: true }).eq('id', bet.id)
       continue
     }
-    // Basketball always uses usa-nba regardless of how the sport is stored
-    const leagueSlug = sportSlug === 'basketball' ? 'usa-nba' : toLeagueSlug(bet.sport)
+    // If basketball sport string doesn't match the lookup (e.g. stored as "Pro Basketball"),
+    // fall back to usa-nba. NCAAB bets always resolve to their own league slug and won't hit null.
+    const leagueSlug = toLeagueSlug(bet.sport) ?? (sportSlug === 'basketball' ? 'usa-nba' : null)
     const key = `${sportSlug}|${leagueSlug ?? ''}`
     const group = bySlug.get(key) ?? { sportSlug, leagueSlug, bets: [] }
     group.bets.push(bet)
