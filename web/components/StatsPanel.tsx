@@ -273,9 +273,7 @@ function PLChart({ bets, colorMap }: { bets: Bet[]; colorMap?: Record<string, st
   )
 }
 
-function CLVChart({ bets, colorMap }: { bets: Bet[]; colorMap?: Record<string, string> }) {
-  const containerRef = useRef<HTMLDivElement>(null)
-  const [tooltip, setTooltip] = useState<{ book: string; color: string; x: number; y: number } | null>(null)
+function CLVBarChart({ bets, colorMap }: { bets: Bet[]; colorMap?: Record<string, string> }) {
   const withClv = bets.filter(b => b.clv !== null)
 
   if (withClv.length === 0) {
@@ -288,221 +286,100 @@ function CLVChart({ bets, colorMap }: { bets: Bet[]; colorMap?: Record<string, s
 
   const books = [...new Set(withClv.map(b => b.book))].sort()
 
-  const series = books.map(book => {
+  const bars = books.map((book, i) => {
     const bookBets = withClv.filter(b => b.book === book)
-
-    const dayMap = new Map<string, number[]>()
-    for (const b of bookBets) {
-      const d = new Date(b.game_time ?? b.recorded_at)
-      const dayKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-      if (!dayMap.has(dayKey)) dayMap.set(dayKey, [])
-      dayMap.get(dayKey)!.push(b.clv!)
-    }
-
-    const sortedDays = [...dayMap.entries()].sort(([a], [b]) => a.localeCompare(b))
-
-    const ORIGIN_TIME = new Date('2026-03-27T12:00:00Z').getTime()
-
-    let cumSum = 0
-    let cumCount = 0
-    const points: { time: number; avgClv: number }[] = [{ time: ORIGIN_TIME, avgClv: 0 }]
-    for (const [dayKey, clvs] of sortedDays) {
-      cumSum += clvs.reduce((a, c) => a + c, 0)
-      cumCount += clvs.length
-      const time = new Date(dayKey + 'T12:00:00Z').getTime()
-      if (time > ORIGIN_TIME) points.push({ time, avgClv: parseFloat((cumSum / cumCount).toFixed(4)) })
-    }
-    const avg = cumCount > 0 ? cumSum / cumCount : 0
-    return { book, points, avg }
+    const avg = bookBets.reduce((sum, b) => sum + b.clv!, 0) / bookBets.length
+    const color = colorMap?.[book] ?? BOOK_COLORS[i % BOOK_COLORS.length]
+    return { book, avg: parseFloat(avg.toFixed(4)), count: bookBets.length, color }
   })
 
-  const ORIGIN_TIME = new Date('2026-03-27T12:00:00Z').getTime()
-  const allTimes = [ORIGIN_TIME, ...series.flatMap(s => s.points.map(p => p.time))]
-  const allVals = series.flatMap(s => s.points.map(p => p.avgClv))
-  const minTime = ORIGIN_TIME
-  const maxTime = Math.max(...allTimes)
+  const rawMinVal = Math.min(0, Math.min(...bars.map(b => b.avg)))
+  const rawMaxVal = Math.max(0, Math.max(...bars.map(b => b.avg)))
 
-  for (const s of series) {
-    const last = s.points[s.points.length - 1]
-    if (last && last.time < maxTime) {
-      s.points.push({ time: maxTime, avgClv: last.avgClv })
-    }
-  }
-
-  const rawMinVal = Math.min(0, Math.min(...allVals))
-  const rawMaxVal = Math.max(0, Math.max(...allVals))
-
-  const PAD = { top: 24, right: 24, bottom: 40, left: 52 }
+  const PAD = { top: 32, right: 24, bottom: 40, left: 52 }
   const W = 720
   const H = 280
   const cW = W - PAD.left - PAD.right
   const cH = H - PAD.top - PAD.bottom
 
-  const timeRange = maxTime - minTime || 1
   const valRange = rawMaxVal - rawMinVal || 1
-
-  const xP = (t: number) => PAD.left + ((t - minTime) / timeRange) * cW
   const yP = (v: number) => PAD.top + (1 - (v - rawMinVal) / valRange) * cH
+  const zeroY = yP(0)
 
   const yTicks = niceTicks(rawMinVal, rawMaxVal)
 
-  const xTickCount = Math.min(6, allTimes.length)
-  const xTicks: number[] =
-    xTickCount <= 1
-      ? [minTime]
-      : Array.from({ length: xTickCount }, (_, i) => minTime + (i / (xTickCount - 1)) * timeRange)
-
-  const handleLineMouseMove = (e: React.MouseEvent, book: string, color: string) => {
-    if (!containerRef.current) return
-    const rect = containerRef.current.getBoundingClientRect()
-    setTooltip({ book, color, x: e.clientX - rect.left, y: e.clientY - rect.top })
-  }
+  const slotW = cW / books.length
+  const barW = Math.min(slotW * 0.5, 60)
 
   return (
-    <div ref={containerRef} style={{ position: 'relative' }}>
-      {/* Legend */}
-      <div className="flex flex-wrap gap-x-5 gap-y-2 mb-5">
-        {series.map(({ book, avg }, i) => {
-          const color = colorMap?.[book] ?? BOOK_COLORS[i % BOOK_COLORS.length]
-          return (
-            <div key={book} className="flex items-center gap-2 text-xs">
-              <svg width="18" height="10" className="shrink-0">
-                <line x1="0" y1="5" x2="18" y2="5" stroke={color} strokeWidth="2.5" />
-              </svg>
-              <span className="text-zinc-300">{book}</span>
-              <span
-                className="font-mono font-medium"
-                style={{ color: avg >= 0 ? '#34d399' : '#f87171' }}
-              >
-                {avg > 0 ? '+' : ''}{avg.toFixed(2)}%
-              </span>
-            </div>
-          )
-        })}
-      </div>
+    <svg
+      viewBox={`0 0 ${W} ${H}`}
+      className="w-full"
+      style={{ maxHeight: 300 }}
+      aria-label="Average CLV % by sportsbook"
+    >
+      {/* Y grid + labels */}
+      {yTicks.map(tick => (
+        <g key={tick}>
+          <line
+            x1={PAD.left} y1={yP(tick)}
+            x2={PAD.left + cW} y2={yP(tick)}
+            stroke={tick === 0 ? '#52525b' : '#27272a'}
+            strokeWidth={1}
+            strokeDasharray={tick === 0 ? undefined : '3 3'}
+          />
+          <text
+            x={PAD.left - 8} y={yP(tick)}
+            textAnchor="end" dominantBaseline="middle"
+            fill="#71717a" fontSize="11"
+            fontFamily="var(--font-geist-mono, monospace)"
+          >
+            {tick > 0 ? '+' : ''}{tick % 1 === 0 ? tick.toFixed(0) : tick.toFixed(1)}%
+          </text>
+        </g>
+      ))}
 
-      <svg
-        viewBox={`0 0 ${W} ${H}`}
-        className="w-full"
-        style={{ maxHeight: 300 }}
-        aria-label="Average CLV % by sportsbook"
-      >
-        {yTicks.map(tick => (
-          <g key={tick}>
-            <line
-              x1={PAD.left}
-              y1={yP(tick)}
-              x2={PAD.left + cW}
-              y2={yP(tick)}
-              stroke={tick === 0 ? '#52525b' : '#27272a'}
-              strokeWidth={1}
-              strokeDasharray={tick === 0 ? undefined : '3 3'}
+      {/* Bars */}
+      {bars.map(({ book, avg, color }, i) => {
+        const cx = PAD.left + slotW * i + slotW / 2
+        const barX = cx - barW / 2
+        const barTop = avg >= 0 ? yP(avg) : zeroY
+        const barH = Math.abs(yP(avg) - zeroY)
+        const labelY = avg >= 0 ? barTop - 5 : barTop + barH + 14
+
+        return (
+          <g key={book}>
+            <rect
+              x={barX} y={barTop}
+              width={barW} height={Math.max(barH, 1)}
+              fill={color}
+              opacity={0.85}
+              rx={2}
             />
+            {/* Value label */}
             <text
-              x={PAD.left - 8}
-              y={yP(tick)}
-              textAnchor="end"
-              dominantBaseline="middle"
-              fill="#71717a"
+              x={cx} y={labelY}
+              textAnchor="middle"
+              fill={color}
               fontSize="11"
               fontFamily="var(--font-geist-mono, monospace)"
+              fontWeight="500"
             >
-              {tick > 0 ? '+' : ''}{tick % 1 === 0 ? tick.toFixed(0) : tick.toFixed(1)}%
+              {avg > 0 ? '+' : ''}{avg.toFixed(2)}%
+            </text>
+            {/* Book label */}
+            <text
+              x={cx} y={H - PAD.bottom + 16}
+              textAnchor="middle"
+              fill="#71717a" fontSize="11"
+              fontFamily="var(--font-geist-sans, sans-serif)"
+            >
+              {book}
             </text>
           </g>
-        ))}
-
-        <line
-          x1={PAD.left}
-          y1={PAD.top + cH}
-          x2={PAD.left + cW}
-          y2={PAD.top + cH}
-          stroke="#27272a"
-          strokeWidth={1}
-        />
-
-        {xTicks.map((t, i) => (
-          <text
-            key={i}
-            x={xP(t)}
-            y={H - PAD.bottom + 16}
-            textAnchor="middle"
-            fill="#71717a"
-            fontSize="11"
-            fontFamily="var(--font-geist-sans, sans-serif)"
-          >
-            {formatDate(t)}
-          </text>
-        ))}
-
-        {series.map(({ book, points }, i) => {
-          if (points.length === 0) return null
-          const color = colorMap?.[book] ?? BOOK_COLORS[i % BOOK_COLORS.length]
-
-          if (points.length === 1) {
-            return (
-              <g
-                key={book}
-                onMouseMove={(e) => handleLineMouseMove(e, book, color)}
-                onMouseLeave={() => setTooltip(null)}
-                style={{ cursor: 'crosshair' }}
-              >
-                <circle cx={xP(points[0].time)} cy={yP(points[0].avgClv)} r={10} fill="transparent" />
-                <circle cx={xP(points[0].time)} cy={yP(points[0].avgClv)} r={4} fill={color} />
-              </g>
-            )
-          }
-
-          const d = points
-            .map((p, j) => `${j === 0 ? 'M' : 'L'}${xP(p.time).toFixed(1)},${yP(p.avgClv).toFixed(1)}`)
-            .join(' ')
-
-          return (
-            <g
-              key={book}
-              onMouseMove={(e) => handleLineMouseMove(e, book, color)}
-              onMouseLeave={() => setTooltip(null)}
-              style={{ cursor: 'crosshair' }}
-            >
-              <path d={d} fill="none" stroke="transparent" strokeWidth={14} />
-              <path
-                d={d}
-                fill="none"
-                stroke={color}
-                strokeWidth={2}
-                strokeLinejoin="round"
-                strokeLinecap="round"
-              />
-              {points.map((p, j) => (
-                <circle key={j} cx={xP(p.time)} cy={yP(p.avgClv)} r={2.5} fill={color} />
-              ))}
-            </g>
-          )
-        })}
-      </svg>
-
-      {tooltip && (
-        <div
-          style={{
-            position: 'absolute',
-            left: tooltip.x + 14,
-            top: tooltip.y - 28,
-            background: '#18181b',
-            border: `1px solid ${tooltip.color}`,
-            borderRadius: 4,
-            padding: '3px 8px',
-            color: tooltip.color,
-            fontSize: 11,
-            fontFamily: 'var(--font-geist-mono, monospace)',
-            pointerEvents: 'none',
-            whiteSpace: 'nowrap',
-            zIndex: 10,
-          }}
-        >
-          {tooltip.book}
-        </div>
-      )}
-    </div>
+        )
+      })}
+    </svg>
   )
 }
 
@@ -574,15 +451,9 @@ export function StatsPanel({ takenBets }: { takenBets: Bet[] }) {
           </div>
         ) : (
           <div className="space-y-4">
+            {/* PnL charts */}
             <div className="rounded-lg border border-white/5 px-5 py-5">
               <PLChart bets={trainingBets} colorMap={trainingColorMap} />
-            </div>
-            <div className="rounded-lg border border-white/5 px-5 py-5">
-              <div className="flex items-baseline gap-2 mb-4">
-                <span className="text-xs font-semibold text-white uppercase tracking-wide">Avg CLV % by Book</span>
-                <span className="text-xs text-zinc-500">running average</span>
-              </div>
-              <CLVChart bets={trainingBets} colorMap={trainingColorMap} />
             </div>
             <div className="grid grid-cols-2 gap-4">
               {MARKET_GROUPS.map(group => {
@@ -595,6 +466,27 @@ export function StatsPanel({ takenBets }: { takenBets: Bet[] }) {
                       <span className="text-xs text-zinc-500">{settledCount} settled bet{settledCount !== 1 ? 's' : ''}</span>
                     </div>
                     <PLChart bets={groupBets} colorMap={trainingColorMap} />
+                  </div>
+                )
+              })}
+            </div>
+
+            {/* CLV bar charts */}
+            <div className="rounded-lg border border-white/5 px-5 py-5">
+              <div className="flex items-baseline gap-2 mb-1">
+                <span className="text-xs font-semibold text-white uppercase tracking-wide">Avg CLV % by Book</span>
+              </div>
+              <CLVBarChart bets={trainingBets} colorMap={trainingColorMap} />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              {MARKET_GROUPS.map(group => {
+                const groupBets = trainingBets.filter(b => getMarketGroup(b.market) === group)
+                return (
+                  <div key={group} className="rounded-lg border border-white/5 px-5 py-5">
+                    <div className="flex items-baseline gap-2 mb-1">
+                      <span className="text-xs font-semibold text-white uppercase tracking-wide">{group} — CLV</span>
+                    </div>
+                    <CLVBarChart bets={groupBets} colorMap={trainingColorMap} />
                   </div>
                 )
               })}
