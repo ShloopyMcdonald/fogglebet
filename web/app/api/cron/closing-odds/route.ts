@@ -45,7 +45,7 @@ export async function GET(req: NextRequest) {
     nhl: 20,
     mlb: 5,
   }
-  const DEFAULT_WINDOW_MINUTES = 10
+  const DEFAULT_WINDOW_MINUTES = 15
   const MAX_WINDOW_MINUTES = 25 // must equal the largest value above
 
   function preGameWindowMinutes(sport: string): number {
