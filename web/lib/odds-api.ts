@@ -153,11 +153,10 @@ export const ODDS_API_LEAGUE_SLUGS: Record<string, string | null> = {
 }
 
 // Priority order for featured markets (ML / Spread / Totals).
-// Circa is the sharpest available, then BetOnline.ag, then FanDuel as fallback.
-export const SHARP_BOOK_PRIORITY = ['Circa', 'BetOnline.ag', 'FanDuel']
+export const SHARP_BOOK_PRIORITY = ['Circa', 'BetOnline.ag', 'BookMaker.eu', 'FanDuel']
 
-// Priority order for prop markets: Circa (sharpest) → FanDuel → DraftKings.
-export const PROP_BOOK_PRIORITY = ['Circa', 'FanDuel', 'DraftKings']
+// Priority order for prop markets.
+export const PROP_BOOK_PRIORITY = ['Circa', 'FanDuel', 'BookMaker.eu', 'DraftKings']
 
 // picktheodds stat type → string that appears in the odds-api.io label parentheses,
 // e.g. "Points - Doncic, L" → statType "Points" → label contains "(Points)".
@@ -624,7 +623,7 @@ export function findClosingOdds(
     return null
   }
 
-  // ── Featured markets: Circa → BetOnline.ag → FanDuel ────────────────────────
+  // ── Featured markets: Circa → BetOnline.ag → BookMaker.eu → FanDuel ────────
   // Require both sides (opposingPrice != null) so de-vig is accurate.
   // Draw moneylines are exempt — they're 3-way markets with no single opposing side.
   const isDraw = bet.line?.toLowerCase() === 'draw'
