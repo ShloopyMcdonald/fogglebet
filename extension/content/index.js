@@ -368,6 +368,13 @@ console.log('[FoggleBet] content script loaded', window.location.href)
       btn.style.boxShadow = '0 2px 8px rgba(245,158,11,0.35)'
       btn.disabled = false
       setTimeout(() => resetButton(btn), 4000)
+    } else if (state === 'unsupported') {
+      btn.textContent = 'Bet type not available'
+      btn.style.background = 'linear-gradient(135deg, #1a0a1a 0%, #4a0a4a 100%)'
+      btn.style.borderColor = '#a855f7'
+      btn.style.boxShadow = '0 2px 8px rgba(168,85,247,0.35)'
+      btn.disabled = false
+      setTimeout(() => resetButton(btn), 4000)
     }
   }
 
@@ -678,6 +685,21 @@ console.log('[FoggleBet] content script loaded', window.location.href)
     if (arbData.legs.length < 2) {
       console.error('[FoggleBet] Could not find 2 legs in this row')
       setButtonState(btn, 'error')
+      return
+    }
+
+    // Validate market type — only moneyline, total, spread, player prop supported
+    const marketLower = (arbData.market ?? '').toLowerCase()
+    const isSupportedMarket =
+      marketLower.includes('moneyline') ||
+      marketLower.includes('total') ||
+      marketLower.includes('spread') ||
+      marketLower.includes('player prop') ||
+      marketLower.includes('player_prop') ||
+      marketLower.includes('playerprop')
+    if (!isSupportedMarket) {
+      console.warn('[FoggleBet] Unsupported market type, not logging:', arbData.market)
+      setButtonState(btn, 'unsupported')
       return
     }
 
