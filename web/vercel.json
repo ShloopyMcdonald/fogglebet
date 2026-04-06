@@ -1,12 +1,1 @@
-{
-  "crons": [
-    {
-      "path": "/api/cron/closing-odds",
-      "schedule": "*/5 * * * *"
-    },
-    {
-      "path": "/api/cron/results",
-      "schedule": "0 6 * * *"
-    }
-  ]
-}
+{}
