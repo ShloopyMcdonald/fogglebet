@@ -605,7 +605,20 @@ export function determineResult(
   // market = "Points - Doncic, L", line = "Over 33.5"
   if (market.includes(' - ')) {
     if (!summary) return null
-    return resolvePlayerProp(market, line, summary)
+    const propResult = resolvePlayerProp(market, line, summary)
+
+    // Polymarket has no pushes: DNP counts as 0 stats.
+    // If the result would push, over = loss, under = win.
+    if (propResult === 'push' && bet.book.toLowerCase().includes('polymarket')) {
+      const overUnder = parseOverUnderLine(line)
+      if (overUnder) {
+        const resolved = overUnder.direction === 'over' ? 'loss' : 'win'
+        console.log(`[espn] Polymarket player prop push → ${resolved} (direction: ${overUnder.direction}, bet ${bet.id})`)
+        return resolved
+      }
+    }
+
+    return propResult
   }
 
   console.warn(`[espn] Unknown market: ${market} for bet ${bet.id}`)
