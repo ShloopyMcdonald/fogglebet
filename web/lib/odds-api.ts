@@ -269,13 +269,11 @@ export async function fetchEvents(
   if (leagueSlug) {
     params.set('league', leagueSlug)
   }
-  // Log sanitized URL (key redacted) so Vercel logs show exact params sent
-  const debugParams = new URLSearchParams(params)
-  debugParams.set('apiKey', 'REDACTED')
+  const url = `${ODDS_API_IO_BASE}/events?${params}`
   const label = leagueSlug ? `${sportSlug}/${leagueSlug}` : sportSlug
-  console.log(`[odds-api] fetchEvents ${label} → ${ODDS_API_IO_BASE}/events?${debugParams}`)
+  console.log(`[odds-api] fetchEvents ${label} → ${url}`)
 
-  const res = await fetch(`${ODDS_API_IO_BASE}/events?${params}`, { cache: 'no-store' })
+  const res = await fetch(url, { cache: 'no-store' })
   if (!res.ok) {
     const text = await res.text()
     throw new Error(`[odds-api] fetchEvents ${label} failed ${res.status}: ${text}`)
@@ -296,7 +294,9 @@ export async function fetchEventOddsById(
     eventId: String(eventId),
     bookmakers: bookmakers.join(','),
   })
-  const res = await fetch(`${ODDS_API_IO_BASE}/odds?${params}`, { cache: 'no-store' })
+  const url = `${ODDS_API_IO_BASE}/odds?${params}`
+  console.log(`[odds-api] fetchEventOddsById ${eventId} → ${url}`)
+  const res = await fetch(url, { cache: 'no-store' })
   if (!res.ok) {
     const text = await res.text()
     throw new Error(`[odds-api] fetchEventOddsById ${eventId} failed ${res.status}: ${text}`)
