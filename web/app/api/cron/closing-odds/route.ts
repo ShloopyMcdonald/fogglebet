@@ -128,6 +128,7 @@ export async function GET(req: NextRequest) {
       continue
     }
     const leagueSlug = toLeagueSlug(bet.sport)
+    console.log(`[closing-odds-cron] sport="${bet.sport}" → sportSlug="${sportSlug}" leagueSlug="${leagueSlug}"`)
     const key = `${sportSlug}|${leagueSlug ?? ''}`
     const group = bySlug.get(key) ?? { sportSlug, leagueSlug, bets: [] }
     group.bets.push(bet)

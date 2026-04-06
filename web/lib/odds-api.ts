@@ -265,7 +265,7 @@ export async function fetchEvents(
   apiKey: string,
   leagueSlug?: string
 ): Promise<OddsApiEvent[]> {
-  const params = new URLSearchParams({ apiKey, sport: sportSlug })
+  const params = new URLSearchParams({ apiKey, sport: sportSlug, status: 'pending,live' })
   if (leagueSlug) {
     params.set('league', leagueSlug)
   }
