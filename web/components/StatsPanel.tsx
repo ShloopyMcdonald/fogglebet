@@ -274,7 +274,8 @@ function PLChart({ bets, colorMap }: { bets: Bet[]; colorMap?: Record<string, st
 }
 
 function CLVBarChart({ bets, colorMap }: { bets: Bet[]; colorMap?: Record<string, string> }) {
-  const withClv = bets.filter(b => b.clv !== null)
+  // Exclude outliers beyond ±10%
+  const withClv = bets.filter(b => b.clv !== null && Math.abs(b.clv) <= 10)
 
   if (withClv.length === 0) {
     return (
@@ -290,11 +291,13 @@ function CLVBarChart({ bets, colorMap }: { bets: Bet[]; colorMap?: Record<string
     const bookBets = withClv.filter(b => b.book === book)
     const avg = bookBets.reduce((sum, b) => sum + b.clv!, 0) / bookBets.length
     const color = colorMap?.[book] ?? BOOK_COLORS[i % BOOK_COLORS.length]
-    return { book, avg: parseFloat(avg.toFixed(4)), count: bookBets.length, color }
+    return { book, avg: parseFloat(avg.toFixed(4)), color }
   })
 
-  const rawMinVal = Math.min(0, Math.min(...bars.map(b => b.avg)))
-  const rawMaxVal = Math.max(0, Math.max(...bars.map(b => b.avg)))
+  // Symmetric range so 0 is always the vertical midpoint
+  const maxAbs = Math.max(0.5, ...bars.map(b => Math.abs(b.avg)))
+  const symMin = -maxAbs
+  const symMax = maxAbs
 
   const PAD = { top: 32, right: 24, bottom: 40, left: 52 }
   const W = 720
@@ -302,11 +305,11 @@ function CLVBarChart({ bets, colorMap }: { bets: Bet[]; colorMap?: Record<string
   const cW = W - PAD.left - PAD.right
   const cH = H - PAD.top - PAD.bottom
 
-  const valRange = rawMaxVal - rawMinVal || 1
-  const yP = (v: number) => PAD.top + (1 - (v - rawMinVal) / valRange) * cH
-  const zeroY = yP(0)
+  const valRange = symMax - symMin
+  const yP = (v: number) => PAD.top + (1 - (v - symMin) / valRange) * cH
+  const zeroY = yP(0) // always vertical center
 
-  const yTicks = niceTicks(rawMinVal, rawMaxVal)
+  const yTicks = niceTicks(symMin, symMax)
 
   const slotW = cW / books.length
   const barW = Math.min(slotW * 0.5, 60)
@@ -345,7 +348,8 @@ function CLVBarChart({ bets, colorMap }: { bets: Bet[]; colorMap?: Record<string
         const barX = cx - barW / 2
         const barTop = avg >= 0 ? yP(avg) : zeroY
         const barH = Math.abs(yP(avg) - zeroY)
-        const labelY = avg >= 0 ? barTop - 5 : barTop + barH + 14
+        // Positive: label above bar. Negative: label inside bar near bottom.
+        const labelY = avg >= 0 ? barTop - 5 : barTop + barH - 6
 
         return (
           <g key={book}>
@@ -360,14 +364,15 @@ function CLVBarChart({ bets, colorMap }: { bets: Bet[]; colorMap?: Record<string
             <text
               x={cx} y={labelY}
               textAnchor="middle"
-              fill={color}
+              dominantBaseline={avg >= 0 ? 'auto' : 'auto'}
+              fill={avg >= 0 ? color : '#18181b'}
               fontSize="11"
               fontFamily="var(--font-geist-mono, monospace)"
-              fontWeight="500"
+              fontWeight="600"
             >
               {avg > 0 ? '+' : ''}{avg.toFixed(2)}%
             </text>
-            {/* Book label */}
+            {/* Book label — always below chart area, never overlaps bars */}
             <text
               x={cx} y={H - PAD.bottom + 16}
               textAnchor="middle"

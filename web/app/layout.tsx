@@ -29,7 +29,7 @@ export default function RootLayout({
     >
       <body
         className="min-h-full flex flex-col"
-        style={{ background: 'radial-gradient(ellipse at 20% 10%, #0f172a 0%, #0b0b0f 60%)' }}
+        style={{ background: 'radial-gradient(ellipse at 20% 10%, #0f172a 0%, #0b0b0f 60%)', backgroundAttachment: 'fixed' }}
       >
         <header className="border-b border-white/5 px-6 py-4">
           <h1 className="text-lg font-semibold tracking-tight text-white">FoggleBet</h1>
