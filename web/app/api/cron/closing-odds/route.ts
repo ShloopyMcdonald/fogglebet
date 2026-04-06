@@ -127,9 +127,8 @@ export async function GET(req: NextRequest) {
       await supabase.from('bets').update({ clv_checked: true }).eq('id', bet.id)
       continue
     }
-    // If basketball sport string doesn't match the lookup (e.g. stored as "Pro Basketball"),
-    // fall back to usa-nba. NCAAB bets always resolve to their own league slug and won't hit null.
-    const leagueSlug = toLeagueSlug(bet.sport) ?? (sportSlug === 'basketball' ? 'usa-nba' : null)
+    // Basketball: no league filter — sport=basketball returns both NBA and NCAAB games
+    const leagueSlug = sportSlug === 'basketball' ? null : toLeagueSlug(bet.sport)
     const key = `${sportSlug}|${leagueSlug ?? ''}`
     const group = bySlug.get(key) ?? { sportSlug, leagueSlug, bets: [] }
     group.bets.push(bet)
