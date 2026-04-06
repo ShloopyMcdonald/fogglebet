@@ -112,11 +112,6 @@ export async function GET(req: NextRequest) {
     return ODDS_API_LEAGUE_SLUGS[normalizeSport(sport)] ?? null
   }
 
-  // Time window for /events: cover ±2h around now to catch all games starting soon
-  const eventsFrom = new Date(now.getTime() - 2 * 60 * 60 * 1000).toISOString()
-  const eventsTo = new Date(now.getTime() + 2 * 60 * 60 * 1000).toISOString()
-  console.log(`[closing-odds-cron] events window: ${eventsFrom} → ${eventsTo}`)
-
   // Group all bets (featured + props) by "sportSlug|leagueSlug" so each unique
   // sport+league combo gets exactly one /events fetch.
   const bySlug = new Map<string, { sportSlug: string; leagueSlug: string | null; bets: Bet[] }>()
@@ -152,10 +147,10 @@ export async function GET(req: NextRequest) {
   for (const [cacheKey, { sportSlug, leagueSlug, bets: slugBets }] of bySlug) {
     if (!eventsCache.has(cacheKey)) {
       try {
-        const events = await fetchEvents(sportSlug, eventsFrom, eventsTo, apiKey, leagueSlug ?? undefined)
+        const events = await fetchEvents(sportSlug, apiKey, leagueSlug ?? undefined)
         eventsCache.set(cacheKey, events)
         const label = leagueSlug ? `${sportSlug}/${leagueSlug}` : sportSlug
-        console.log(`[closing-odds-cron] Fetched ${events.length} events for ${label} (window: ${eventsFrom} → ${eventsTo})`)
+        console.log(`[closing-odds-cron] Fetched ${events.length} events for ${label}`)
         // Log all events for this sport so we can verify which games are visible
         for (const ev of events) {
           console.log(

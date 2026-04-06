@@ -262,26 +262,12 @@ function parseSpreadLine(line: string): { teamKeyword: string; spread: number } 
 // Pass leagueSlug when known — it narrows results to one league and removes the need for a limit.
 export async function fetchEvents(
   sportSlug: string,
-  from: string,
-  to: string,
   apiKey: string,
   leagueSlug?: string
 ): Promise<OddsApiEvent[]> {
-  // odds-api.io requires RFC3339 without milliseconds (T17:00:00Z not T17:00:00.000Z)
-  const fromRfc = from.replace(/\.\d{3}Z$/, 'Z')
-  const toRfc = to.replace(/\.\d{3}Z$/, 'Z')
-  const params = new URLSearchParams({
-    apiKey,
-    sport: sportSlug,
-    from: fromRfc,
-    to: toRfc,
-    status: 'pending,live',
-  })
+  const params = new URLSearchParams({ apiKey, sport: sportSlug })
   if (leagueSlug) {
     params.set('league', leagueSlug)
-  } else {
-    // Without a league filter the result set can be large; cap at 200 as a safety net.
-    params.set('limit', '200')
   }
   // Log sanitized URL (key redacted) so Vercel logs show exact params sent
   const debugParams = new URLSearchParams(params)
