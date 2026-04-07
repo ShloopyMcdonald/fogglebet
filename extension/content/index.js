@@ -47,6 +47,7 @@ console.log('[FoggleBet] content script loaded', window.location.href)
     // not to the compact leg containers. This prevents rare misidentification (~1/20 bets)
     // when the expanded table's DOM order precedes the compact legs.
     const bookDivs = Array.from(row.querySelectorAll('div[aria-label]'))
+      .filter(el => (el.getAttribute('aria-label') ?? '').length > 0)
       .filter(el => !/[+-]\d/.test(el.getAttribute('aria-label') ?? ''))
       .filter(el => !el.closest('table'))
       .slice(0, 2)
