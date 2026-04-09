@@ -113,15 +113,33 @@ export function TrainingTable() {
   useEffect(() => {
     let cancelled = false
 
-    supabase
-      .from('bets')
-      .select('recorded_at, arb_id')
-      .eq('is_training', true)
-      .then(({ data, error }) => {
+    async function loadStructure() {
+      const PAGE = 1000
+      const all: SummaryItem[] = []
+      let offset = 0
+      while (true) {
+        const { data, error } = await supabase
+          .from('bets')
+          .select('recorded_at, arb_id')
+          .eq('is_training', true)
+          .order('recorded_at', { ascending: true })
+          .range(offset, offset + PAGE - 1)
+        if (error || !data) throw new Error('fetch failed')
+        all.push(...(data as SummaryItem[]))
+        if (data.length < PAGE) break
+        offset += PAGE
+      }
+      return all
+    }
+
+    loadStructure()
+      .then(items => {
         if (cancelled) return
-        if (error || !data) { setStatus('error'); return }
-        setStructure(buildStructure(data as SummaryItem[]))
+        setStructure(buildStructure(items))
         setStatus('idle')
+      })
+      .catch(() => {
+        if (!cancelled) setStatus('error')
       })
 
     return () => { cancelled = true }
