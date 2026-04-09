@@ -428,6 +428,24 @@ async function fetchAllSettledTrainingBets(): Promise<Bet[]> {
   return results
 }
 
+async function fetchAllTrainingBetsWithClv(): Promise<Bet[]> {
+  const PAGE = 1000
+  const results: Bet[] = []
+  let offset = 0
+  while (true) {
+    const { data, error } = await supabase
+      .from('bets').select('*')
+      .eq('is_training', true).not('clv', 'is', null)
+      .order('recorded_at', { ascending: true })
+      .range(offset, offset + PAGE - 1)
+    if (error || !data || data.length === 0) break
+    results.push(...(data as Bet[]))
+    if (data.length < PAGE) break
+    offset += PAGE
+  }
+  return results
+}
+
 async function fetchAllTakenBets(): Promise<Bet[]> {
   const PAGE = 1000
   const results: Bet[] = []
@@ -448,6 +466,7 @@ async function fetchAllTakenBets(): Promise<Bet[]> {
 
 export function StatsPanel({ takenBets }: { takenBets: Bet[] }) {
   const [trainingBets, setTrainingBets] = useState<Bet[] | null>(null)
+  const [trainingBetsWithClv, setTrainingBetsWithClv] = useState<Bet[] | null>(null)
   const [allTakenBets, setAllTakenBets] = useState<Bet[] | null>(null)
   const [loadError, setLoadError] = useState(false)
 
@@ -455,6 +474,12 @@ export function StatsPanel({ takenBets }: { takenBets: Bet[] }) {
     fetchAllSettledTrainingBets()
       .then(data => setTrainingBets(data))
       .catch(() => setLoadError(true))
+  }, [])
+
+  useEffect(() => {
+    fetchAllTrainingBetsWithClv()
+      .then(data => setTrainingBetsWithClv(data))
+      .catch(() => { /* CLV charts will stay empty */ })
   }, [])
 
   useEffect(() => {
@@ -467,9 +492,13 @@ export function StatsPanel({ takenBets }: { takenBets: Bet[] }) {
   const settledTaken = betsForStats.filter(b => b.result !== 'pending')
 
   // Build stable book→color maps so colors are consistent across all charts
+  // Union books from both settled bets (P&L) and CLV bets so colors never shift
+  const trainingBooks = [...new Set([
+    ...(trainingBets ?? []).map(b => b.book),
+    ...(trainingBetsWithClv ?? []).map(b => b.book),
+  ])].sort()
   const trainingColorMap: Record<string, string> = Object.fromEntries(
-    [...new Set((trainingBets ?? []).map(b => b.book))].sort()
-      .map((book, i) => [book, BOOK_COLORS[i % BOOK_COLORS.length]])
+    trainingBooks.map((book, i) => [book, BOOK_COLORS[i % BOOK_COLORS.length]])
   )
   const takenColorMap: Record<string, string> = Object.fromEntries(
     [...new Set(betsForStats.map(b => b.book))].sort()
@@ -519,11 +548,11 @@ export function StatsPanel({ takenBets }: { takenBets: Bet[] }) {
               <div className="flex items-baseline gap-2 mb-1">
                 <span className="text-xs font-semibold text-white uppercase tracking-wide">Avg CLV % by Book</span>
               </div>
-              <CLVBarChart bets={trainingBets} colorMap={trainingColorMap} />
+              <CLVBarChart bets={trainingBetsWithClv ?? []} colorMap={trainingColorMap} />
             </div>
             <div className="grid grid-cols-2 gap-4">
               {MARKET_GROUPS.map(group => {
-                const groupBets = trainingBets.filter(b => getMarketGroup(b.market) === group)
+                const groupBets = (trainingBetsWithClv ?? []).filter(b => getMarketGroup(b.market) === group)
                 return (
                   <div key={group} className="rounded-lg border border-white/5 px-5 py-5">
                     <div className="flex items-baseline gap-2 mb-1">
