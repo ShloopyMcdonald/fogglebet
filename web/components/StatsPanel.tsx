@@ -410,23 +410,61 @@ function SectionHeading({ title, count }: { title: string; count: number | null 
   )
 }
 
+async function fetchAllSettledTrainingBets(): Promise<Bet[]> {
+  const PAGE = 1000
+  const results: Bet[] = []
+  let offset = 0
+  while (true) {
+    const { data, error } = await supabase
+      .from('bets').select('*')
+      .eq('is_training', true).neq('result', 'pending')
+      .order('recorded_at', { ascending: true })
+      .range(offset, offset + PAGE - 1)
+    if (error || !data || data.length === 0) break
+    results.push(...(data as Bet[]))
+    if (data.length < PAGE) break
+    offset += PAGE
+  }
+  return results
+}
+
+async function fetchAllTakenBets(): Promise<Bet[]> {
+  const PAGE = 1000
+  const results: Bet[] = []
+  let offset = 0
+  while (true) {
+    const { data, error } = await supabase
+      .from('bets').select('*')
+      .eq('is_training', false).eq('is_taken', true)
+      .order('recorded_at', { ascending: true })
+      .range(offset, offset + PAGE - 1)
+    if (error || !data || data.length === 0) break
+    results.push(...(data as Bet[]))
+    if (data.length < PAGE) break
+    offset += PAGE
+  }
+  return results
+}
+
 export function StatsPanel({ takenBets }: { takenBets: Bet[] }) {
   const [trainingBets, setTrainingBets] = useState<Bet[] | null>(null)
+  const [allTakenBets, setAllTakenBets] = useState<Bet[] | null>(null)
   const [loadError, setLoadError] = useState(false)
 
   useEffect(() => {
-    supabase
-      .from('bets')
-      .select('*')
-      .eq('is_training', true)
-      .neq('result', 'pending')
-      .then(({ data, error }) => {
-        if (error || !data) { setLoadError(true); return }
-        setTrainingBets(data as Bet[])
-      })
+    fetchAllSettledTrainingBets()
+      .then(data => setTrainingBets(data))
+      .catch(() => setLoadError(true))
   }, [])
 
-  const settledTaken = takenBets.filter(b => b.result !== 'pending')
+  useEffect(() => {
+    fetchAllTakenBets()
+      .then(data => setAllTakenBets(data))
+      .catch(() => { /* use prop as fallback */ })
+  }, [])
+
+  const betsForStats = allTakenBets ?? takenBets
+  const settledTaken = betsForStats.filter(b => b.result !== 'pending')
 
   // Build stable book→color maps so colors are consistent across all charts
   const trainingColorMap: Record<string, string> = Object.fromEntries(
@@ -434,7 +472,7 @@ export function StatsPanel({ takenBets }: { takenBets: Bet[] }) {
       .map((book, i) => [book, BOOK_COLORS[i % BOOK_COLORS.length]])
   )
   const takenColorMap: Record<string, string> = Object.fromEntries(
-    [...new Set(takenBets.map(b => b.book))].sort()
+    [...new Set(betsForStats.map(b => b.book))].sort()
       .map((book, i) => [book, BOOK_COLORS[i % BOOK_COLORS.length]])
   )
 
@@ -507,7 +545,7 @@ export function StatsPanel({ takenBets }: { takenBets: Bet[] }) {
           count={settledTaken.length}
         />
         <div className="rounded-lg border border-white/5 px-5 py-5">
-          <PLChart bets={takenBets} colorMap={takenColorMap} />
+          <PLChart bets={betsForStats} colorMap={takenColorMap} />
         </div>
       </section>
     </div>
