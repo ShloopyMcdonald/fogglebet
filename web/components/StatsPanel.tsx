@@ -82,7 +82,7 @@ function PLChart({ bets, colorMap }: { bets: Bet[]; colorMap?: Record<string, st
   const allTimes = [ORIGIN_TIME, ...series.flatMap(s => s.points.map(p => p.time))]
   const allPLs = series.flatMap(s => s.points.map(p => p.cumPL))
   const minTime = ORIGIN_TIME
-  const maxTime = Math.max(...allTimes)
+  const maxTime = Math.max(Date.now(), ...allTimes)
 
   // Extend each series to the right edge so lines don't stop early
   for (const s of series) {
