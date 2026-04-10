@@ -547,16 +547,19 @@ export function StatsPanel({ takenBets }: { takenBets: Bet[] }) {
             <div className="rounded-lg border border-white/5 px-5 py-5">
               <div className="flex items-baseline gap-2 mb-1">
                 <span className="text-xs font-semibold text-white uppercase tracking-wide">Avg CLV % by Book</span>
+                <span className="text-xs text-zinc-500">{(trainingBetsWithClv ?? []).filter(b => Math.abs(b.clv!) <= 10).length} qualifying bets</span>
               </div>
               <CLVBarChart bets={trainingBetsWithClv ?? []} colorMap={trainingColorMap} />
             </div>
             <div className="grid grid-cols-2 gap-4">
               {MARKET_GROUPS.map(group => {
                 const groupBets = (trainingBetsWithClv ?? []).filter(b => getMarketGroup(b.market) === group)
+                const qualifyingCount = groupBets.filter(b => Math.abs(b.clv!) <= 10).length
                 return (
                   <div key={group} className="rounded-lg border border-white/5 px-5 py-5">
                     <div className="flex items-baseline gap-2 mb-1">
                       <span className="text-xs font-semibold text-white uppercase tracking-wide">{group} — CLV</span>
+                      <span className="text-xs text-zinc-500">{qualifyingCount} qualifying bet{qualifyingCount !== 1 ? 's' : ''}</span>
                     </div>
                     <CLVBarChart bets={groupBets} colorMap={trainingColorMap} />
                   </div>
