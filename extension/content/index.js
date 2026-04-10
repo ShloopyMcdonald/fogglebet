@@ -83,16 +83,21 @@ console.log('[FoggleBet] content script loaded', window.location.href)
       legData.push({ book, bookImgAlt, sideLabel, sideLine, href })
     }
 
-    // Leg odds — spans are siblings to the <a> tags, not inside them.
-    // Exclude spans inside <table> — the expanded book-odds table uses the same
-    // class and would corrupt oddsValues[0,1] if picked up first.
-    const oddsSpans = Array.from(row.querySelectorAll('span.MuiTypography-oddsRobotoMono'))
-      .filter(el => !el.closest('table'))
-    const oddsValues = oddsSpans.map(el => {
-      const text = el.textContent?.trim()
-      return text ? parseInt(text.replace('+', ''), 10) : null
+    // Compact leg odds — the real compact odds render as span.MuiTypography-body3 siblings
+    // OUTSIDE the leg containers (the ODDS column is a separate flex column, not inside the <a>).
+    // We cannot use span.MuiTypography-oddsRobotoMono here: PTO's expanded book-odds table
+    // does NOT nest its columns inside a real HTML <table> element, so closest('table') returns
+    // null for every span on the page — the !closest('table') filter is a no-op and every
+    // expanded table span (BEST, AVERAGE, per-book columns) bleeds through.
+    const allRowBody3 = Array.from(row.querySelectorAll('span.MuiTypography-body3'))
+    const compactOddsSpans = allRowBody3
+      .filter(s => /^[+-]?\d+$/.test(s.textContent?.trim() ?? ''))
+      .filter(s => !legs.some(leg => leg?.contains(s)))
+    const oddsValues = legData.map((_, i) => {
+      const span = compactOddsSpans[i]
+      return span ? parseInt((span.textContent?.trim() ?? '').replace('+', ''), 10) : null
     })
-    if (oddsValues.length < 2) warn(`expected 2 odds spans, found ${oddsValues.length}`)
+    if (compactOddsSpans.length < 2) warn(`expected 2 compact odds body3 spans, found ${compactOddsSpans.length}`)
 
     // Wager amounts
     const wager0 = row.querySelector('input[type="number"][name="0"]')
@@ -149,6 +154,26 @@ console.log('[FoggleBet] content script loaded', window.location.href)
   }
 
   // ─── Book odds scraping ────────────────────────────────────────────────────
+
+  // Match a cell0 identifier (team abbreviation or abbreviated player name) to a full side label.
+  // Handles two formats:
+  //   - Team abbr   "DIJ"           → "JDA Dijon Basket"   (substring / word-prefix match)
+  //   - Player abbr "A.Jecan / B.Pavel" → "Jecan A / Pavel B" (last-name extraction after ".")
+  function matchCell0LabelToSideLabel(cell0Label, sideLabel) {
+    const lCell = cell0Label.toLowerCase().trim()
+    const lSide = sideLabel.toLowerCase().trim()
+    // Direct: cell0 is a substring of sideLabel, or any word in sideLabel starts with cell0
+    if (lSide.includes(lCell) || lSide.split(/\s+/).some(w => w.startsWith(lCell))) return true
+    // Abbreviated player names: extract last names after "." and check all appear in sideLabel
+    if (lCell.includes('.') || lCell.includes('/')) {
+      const lastNames = lCell.split(/\s*\/\s*/).map(part => {
+        const dot = part.indexOf('.')
+        return dot >= 0 ? part.substring(dot + 1).trim() : part.trim()
+      }).filter(ln => ln.length >= 2)
+      if (lastNames.length > 0 && lastNames.every(ln => lSide.includes(ln))) return true
+    }
+    return false
+  }
 
   const TARGET_BOOKS = ['NoVig', 'ProphetX', 'Polymarket (INT)', 'Pinnacle', 'Circa', 'FanDuel']
 
@@ -209,28 +234,53 @@ console.log('[FoggleBet] content script loaded', window.location.href)
     const dataRows = Array.from(row.querySelectorAll('tr'))
       .filter(tr => !headerTable.contains(tr))
 
-    // For spread bets: reorder sideLabels to match table button order.
-    // Cell 0 buttons have aria-labels like "CHI+34.5" / "OKC-34.5" that encode
-    // which side is btn[0] vs btn[1]. Match those lines to sideLines from the legs.
+    // Reorder sideLabels to match the table's button order.
+    // The table renders teams in game order (home/away or alphabetical), which can differ
+    // from leg DOM order. ~50% of ML bets are swapped without this correction.
+    // Cell 0 always encodes which side is btn[0] vs btn[1]:
+    //   - Spreads: aria-labels like "CHI+34.5" — match via the spread value
+    //   - Moneylines: aria-labels like "DIJ" or "A.Jecan / B.Pavel" — match via name
     let orderedSideLabels = sideLabels
-    if (sideLines.some(Boolean) && dataRows.length > 0) {
+    if (dataRows.length > 0) {
       const cell0 = dataRows[0].cells[0]
       if (cell0) {
-        // Cell 0 uses plain divs with aria-label (e.g. "CHI+32.5"), not div[role="button"]
-        const cell0Divs = Array.from(cell0.querySelectorAll('div[aria-label]'))
-          .filter(el => /[+-]\d/.test(el.getAttribute('aria-label') ?? ''))
-        const lineToLabel = {}
-        sideLines.forEach((line, i) => {
-          if (line && sideLabels[i]) lineToLabel[line] = sideLabels[i]
-        })
-        const reordered = cell0Divs.map(div => {
-          const ariaLabel = div.getAttribute('aria-label') ?? ''
-          const match = ariaLabel.match(/([+-]\d+(?:\.\d+)?)$/)
-          return match ? (lineToLabel[match[1]] ?? null) : null
-        })
-        if (cell0Divs.length >= 2 && reordered.every(l => l !== null)) {
-          orderedSideLabels = reordered
-          console.log('[FoggleBet] scrapeBookOdds — reordered sideLabels for spread:', orderedSideLabels)
+        if (sideLines.some(Boolean)) {
+          // ── Spread: use aria-labels that contain a spread value ("CHI+32.5") ──
+          const cell0Divs = Array.from(cell0.querySelectorAll('div[aria-label]'))
+            .filter(el => /[+-]\d/.test(el.getAttribute('aria-label') ?? ''))
+          const lineToLabel = {}
+          sideLines.forEach((line, i) => {
+            if (line && sideLabels[i]) lineToLabel[line] = sideLabels[i]
+          })
+          const reordered = cell0Divs.map(div => {
+            const ariaLabel = div.getAttribute('aria-label') ?? ''
+            const match = ariaLabel.match(/([+-]\d+(?:\.\d+)?)$/)
+            return match ? (lineToLabel[match[1]] ?? null) : null
+          })
+          if (cell0Divs.length >= 2 && reordered.every(l => l !== null)) {
+            orderedSideLabels = reordered
+            console.log('[FoggleBet] scrapeBookOdds — reordered sideLabels for spread:', orderedSideLabels)
+          }
+        } else {
+          // ── Moneyline / other: use team abbrs or player name abbrs from cell 0 ──
+          // Cell 0 has div[aria-label] entries like "DIJ"/"CHO" or "A.Jecan / B.Pavel"
+          const cell0Labels = Array.from(cell0.querySelectorAll('div[aria-label]'))
+            .map(el => el.getAttribute('aria-label') ?? '')
+            .filter(s => s.length > 0)
+          if (cell0Labels.length >= 2) {
+            const reordered = cell0Labels.map(cell0Label =>
+              sideLabels.find(sl => matchCell0LabelToSideLabel(cell0Label, sl)) ?? null
+            )
+            // Only apply if all positions resolved to distinct side labels
+            const allResolved = reordered.length >= 2 && reordered.every(l => l !== null)
+            const allDistinct = new Set(reordered).size === reordered.length
+            if (allResolved && allDistinct) {
+              orderedSideLabels = reordered
+              console.log('[FoggleBet] scrapeBookOdds — reordered sideLabels for ML:', orderedSideLabels)
+            } else {
+              console.warn('[FoggleBet] scrapeBookOdds — ML cell0 reorder failed, keeping leg order', { cell0Labels, sideLabels, reordered })
+            }
+          }
         }
       }
     }

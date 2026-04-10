@@ -165,13 +165,24 @@ true_fav_prob = b0 / (1 + b0)
 
 ---
 
-## Compact leg odds corrupted by expanded book-odds table spans (moneyline swap root cause)
+## Moneyline book_odds side swap: two-layer root cause
 
-**Bug:** `scrapeRow` found compact leg odds with `row.querySelectorAll('span.MuiTypography-oddsRobotoMono')`. When the row is expanded, the book-odds table (inside a `<table>`) uses the same class for every odds cell. Those extra spans were picked up first (or mixed in), making `oddsValues[0,1]` be random table odds (e.g. Circa's -196) instead of the compact leg odds (+175/-176). This corrupted the `compactOdds` ground truth used by `fixBookOddsSideOrder`, which then bailed out without fixing the swap.
+**Bug:** ~50% of moneyline bets had all book odds assigned to the wrong team. The swapped odds were saved to the DB (e.g., leg on Goldhoff at PointsBet stored as -275 instead of +185).
 
-**Fix:** Add `.filter(el => !el.closest('table'))` to the span query in `scrapeRow`. Compact leg spans are never inside a `<table>`; expanded table spans always are.
+**Root cause 1 — `scrapeBookOdds` side ordering:**
+The expanded table renders teams in *game order* (home/away or alphabetical), not leg DOM order. For spreads, the existing reorder used cell-0 aria-labels like "CHI+32.5" to match sides — but this only ran when `sideLines.some(Boolean)`, which is never true for moneylines. So moneylines always fell back to index-based `orderedSideLabels[sideIdx]`, which is wrong ~50% of the time.
 
-**Pattern:** Any time a selector is used on the whole row container while expanded, table descendants must be explicitly excluded.
+**Root cause 2 — `!el.closest('table')` filter is a no-op on PTO:**
+PTO's expanded book-odds table uses MUI's `MuiTableRow-root`/`MuiTableCell-root` CSS classes on `<tr>`/`<td>` elements, but these elements are NOT nested inside a real HTML `<table>` for all columns. `el.closest('table')` returns null for every odds span on the page. So `compactOdds` (the `fixBookOddsSideOrder` ground truth) picked up the table's BEST column values instead of actual compact leg odds. This made the validator unable to detect the swap.
+
+**The actual compact odds** are in `span.MuiTypography-body3` siblings *outside* the leg containers (the ODDS column is a separate flex column). The individual book odds in the expanded table use `span.MuiTypography-oddsRobotoMono`, so body3 odds in the row = exclusively compact leg odds.
+
+**Fix:**
+1. `scrapeRow`: Replace `oddsRobotoMono` scan with a `body3` scan filtered to spans outside leg containers and matching `/^[+-]?\d+$/`.
+2. `scrapeBookOdds`: Extend the cell-0 reorder logic to also fire for moneylines (when `sideLines` are all null). Added `matchCell0LabelToSideLabel()` helper that handles both team abbreviations ("DIJ" → "JDA Dijon Basket") and abbreviated player names ("A.Jecan / B.Pavel" → "Jecan A / Pavel B" via last-name extraction).
+3. Both branches (spread via spread-value matching, ML via name matching) are protected by `allResolved && allDistinct` before applying.
+
+**Pattern:** Cell 0 of the expanded data row always encodes the canonical button order. Use it for ALL market types, not just spreads.
 
 ---
 
@@ -194,6 +205,16 @@ true_fav_prob = b0 / (1 + b0)
 **Fix:** One-time batch update: `UPDATE bets SET clv_checked=true WHERE clv_checked=false AND closing_odds IS NULL AND game_time < (now - 2h)`. This marks them as definitive misses so the dashboard shows "n/a".
 
 **Ongoing:** The cron itself is working correctly. Tonight's bets (game_time in the future) will get CLV captured automatically at game time. If the cron is ever down for an extended period, run the batch update again to clean up stuck bets.
+
+---
+
+## Empty aria-label divs (live score indicators) corrupt bookDivs detection
+
+**Bug:** Live game rows (especially live tennis with score indicators) contain `div[aria-label=""]` elements. These passed the spread-value filter `!/[+-]\d/` because empty string matches nothing. They appeared BEFORE the actual book logo divs in DOM order, so `.slice(0, 2)` grabbed them instead of the real books. When both empty-label divs shared the same grandparent, `legs[0] === legs[1]` — same element for both legs — so `querySelector('span.MuiTypography-body3')` returned team 1's name for BOTH legs. User saw wrong teams recorded.
+
+**Fix:** Added `.filter(el => (el.getAttribute('aria-label') ?? '').length > 0)` as the first filter in the `bookDivs` chain. Book logo divs always have a non-empty aria-label (the book name).
+
+**Pattern:** Always guard aria-label filters with a length check — empty strings pass regex filters silently.
 
 ---
 
