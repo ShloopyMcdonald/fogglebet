@@ -531,7 +531,8 @@ console.log('[FoggleBet] content script loaded', window.location.href)
 
   // ─── Side-picker modal ────────────────────────────────────────────────────
 
-  function showSidePicker(arbData, onSelect) {
+  // onSelect(sideIndex, stake)
+  function showSidePicker(arbData, defaultStake, onSelect) {
     const overlay = document.createElement('div')
     overlay.style.cssText = `
       position: fixed;
@@ -598,12 +599,44 @@ console.log('[FoggleBet] content script loaded', window.location.href)
       sideBtn.addEventListener('mouseenter', () => { sideBtn.style.borderColor = '#2563eb' })
       sideBtn.addEventListener('mouseleave', () => { sideBtn.style.borderColor = '#334155' })
       sideBtn.addEventListener('click', () => {
+        const raw = parseFloat(stakeInput.value)
+        const stake = isNaN(raw) || raw <= 0 ? 100 : Math.min(raw, 100)
         document.body.removeChild(overlay)
-        onSelect(i)
+        onSelect(i, stake)
       })
 
       btnRow.appendChild(sideBtn)
     })
+
+    // Stake input row
+    const stakeRow = document.createElement('div')
+    stakeRow.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-top: 14px;'
+
+    const stakeLabel = document.createElement('label')
+    stakeLabel.textContent = 'Stake ($)'
+    stakeLabel.style.cssText = 'font-size: 12px; color: #9ca3af; white-space: nowrap;'
+
+    const stakeInput = document.createElement('input')
+    stakeInput.type = 'number'
+    stakeInput.min = '1'
+    stakeInput.max = '100'
+    stakeInput.value = String(defaultStake)
+    stakeInput.style.cssText = `
+      flex: 1;
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 4px;
+      padding: 5px 8px;
+      font-size: 13px;
+      font-family: system-ui, sans-serif;
+      color: #e5e5e5;
+      outline: none;
+    `
+    stakeInput.addEventListener('focus', () => { stakeInput.style.borderColor = '#2563eb' })
+    stakeInput.addEventListener('blur', () => { stakeInput.style.borderColor = '#334155' })
+
+    stakeRow.appendChild(stakeLabel)
+    stakeRow.appendChild(stakeInput)
 
     const cancelBtn = document.createElement('button')
     cancelBtn.textContent = 'Cancel'
@@ -622,6 +655,7 @@ console.log('[FoggleBet] content script loaded', window.location.href)
     modal.appendChild(title)
     modal.appendChild(subtitle)
     modal.appendChild(btnRow)
+    modal.appendChild(stakeRow)
     modal.appendChild(cancelBtn)
     overlay.appendChild(modal)
     document.body.appendChild(overlay)
@@ -780,15 +814,19 @@ console.log('[FoggleBet] content script loaded', window.location.href)
       if (purpose === 'training') {
         postBets(btn, arbData, /* takenIndex */ null, /* isTraining */ true)
       } else {
-        // Step 2: pick which side
-        showSidePicker(arbData, (takenIndex) => {
-          postBets(btn, arbData, takenIndex, /* isTraining */ true)
+        // Step 2: pick which side + confirm stake
+        const leg0Liq = arbData.legs[0]?.liquidity ?? null
+        const leg1Liq = arbData.legs[1]?.liquidity ?? null
+        const maxLiq = Math.max(leg0Liq ?? 0, leg1Liq ?? 0)
+        const defaultStake = maxLiq > 0 ? Math.min(maxLiq, 100) : 100
+        showSidePicker(arbData, defaultStake, (takenIndex, stake) => {
+          postBets(btn, arbData, takenIndex, /* isTraining */ true, stake)
         })
       }
     })
   }
 
-  function postBets(btn, arbData, takenIndex, isTraining) {
+  function postBets(btn, arbData, takenIndex, isTraining, takenStake) {
     setButtonState(btn, 'loading')
 
     const arb_id = crypto.randomUUID()
@@ -825,7 +863,7 @@ console.log('[FoggleBet] content script loaded', window.location.href)
         ev_percent: null,
         arb_percent: arbData.arb_percent,
         book_odds: Object.keys(legBookOdds).length > 0 ? legBookOdds : null,
-        stake: takenIndex !== null && i === takenIndex ? Math.min(leg.liquidity ?? 100, 100) : 1,
+        stake: takenIndex !== null && i === takenIndex ? (takenStake ?? 100) : 1,
         source_url,
       }
     })
