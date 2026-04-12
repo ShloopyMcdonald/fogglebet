@@ -7,7 +7,6 @@ async function getTakenBets(): Promise<Bet[]> {
   const { data, error } = await supabase
     .from('bets')
     .select('*')
-    .eq('is_training', false)
     .eq('is_taken', true)
     .order('recorded_at', { ascending: false })
     .limit(200)

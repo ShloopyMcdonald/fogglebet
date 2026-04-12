@@ -410,6 +410,7 @@ function SectionHeading({ title, count }: { title: string; count: number | null 
   )
 }
 
+// Training bets: is_training=true, is_taken=false (pure training — no side was taken)
 async function fetchAllSettledTrainingBets(): Promise<Bet[]> {
   const PAGE = 1000
   const results: Bet[] = []
@@ -417,7 +418,7 @@ async function fetchAllSettledTrainingBets(): Promise<Bet[]> {
   while (true) {
     const { data, error } = await supabase
       .from('bets').select('*')
-      .eq('is_training', true).neq('result', 'pending')
+      .eq('is_training', true).eq('is_taken', false).neq('result', 'pending')
       .order('recorded_at', { ascending: true })
       .range(offset, offset + PAGE - 1)
     if (error || !data || data.length === 0) break
@@ -435,7 +436,7 @@ async function fetchAllTrainingBetsWithClv(): Promise<Bet[]> {
   while (true) {
     const { data, error } = await supabase
       .from('bets').select('*')
-      .eq('is_training', true).not('clv', 'is', null)
+      .eq('is_training', true).eq('is_taken', false).not('clv', 'is', null)
       .order('recorded_at', { ascending: true })
       .range(offset, offset + PAGE - 1)
     if (error || !data || data.length === 0) break
@@ -446,14 +447,15 @@ async function fetchAllTrainingBetsWithClv(): Promise<Bet[]> {
   return results
 }
 
-async function fetchAllTakenBets(): Promise<Bet[]> {
+// Taken bets: is_taken=true (the side the user actually bet)
+async function fetchAllSettledTakenBets(): Promise<Bet[]> {
   const PAGE = 1000
   const results: Bet[] = []
   let offset = 0
   while (true) {
     const { data, error } = await supabase
       .from('bets').select('*')
-      .eq('is_training', false).eq('is_taken', true)
+      .eq('is_taken', true).neq('result', 'pending')
       .order('recorded_at', { ascending: true })
       .range(offset, offset + PAGE - 1)
     if (error || !data || data.length === 0) break
@@ -464,35 +466,135 @@ async function fetchAllTakenBets(): Promise<Bet[]> {
   return results
 }
 
+async function fetchAllTakenBetsWithClv(): Promise<Bet[]> {
+  const PAGE = 1000
+  const results: Bet[] = []
+  let offset = 0
+  while (true) {
+    const { data, error } = await supabase
+      .from('bets').select('*')
+      .eq('is_taken', true).not('clv', 'is', null)
+      .order('recorded_at', { ascending: true })
+      .range(offset, offset + PAGE - 1)
+    if (error || !data || data.length === 0) break
+    results.push(...(data as Bet[]))
+    if (data.length < PAGE) break
+    offset += PAGE
+  }
+  return results
+}
+
+function ChartSection({
+  settledBets,
+  clvBets,
+  colorMap,
+  loading,
+  error,
+  sectionTitle,
+}: {
+  settledBets: Bet[] | null
+  clvBets: Bet[] | null
+  colorMap: Record<string, string>
+  loading: boolean
+  error: boolean
+  sectionTitle: string
+}) {
+  if (error) {
+    return (
+      <div className="rounded-lg border border-white/5 px-5 py-5">
+        <div className="text-center py-12 text-red-500 text-sm">Failed to load {sectionTitle}.</div>
+      </div>
+    )
+  }
+  if (loading || settledBets === null) {
+    return (
+      <div className="rounded-lg border border-white/5 px-5 py-5">
+        <div className="text-center py-12 text-zinc-600 text-sm">Loading…</div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Overall P&L */}
+      <div className="rounded-lg border border-white/5 px-5 py-5">
+        <PLChart bets={settledBets} colorMap={colorMap} />
+      </div>
+
+      {/* P&L by market group */}
+      <div className="grid grid-cols-2 gap-4">
+        {MARKET_GROUPS.map(group => {
+          const groupBets = settledBets.filter(b => getMarketGroup(b.market) === group)
+          const settledCount = groupBets.filter(b => b.result !== 'pending').length
+          return (
+            <div key={group} className="rounded-lg border border-white/5 px-5 py-5">
+              <div className="flex items-baseline gap-2 mb-4">
+                <span className="text-xs font-semibold text-white uppercase tracking-wide">{group}</span>
+                <span className="text-xs text-zinc-500">{settledCount} settled bet{settledCount !== 1 ? 's' : ''}</span>
+              </div>
+              <PLChart bets={groupBets} colorMap={colorMap} />
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Overall CLV */}
+      <div className="rounded-lg border border-white/5 px-5 py-5">
+        <div className="flex items-baseline gap-2 mb-1">
+          <span className="text-xs font-semibold text-white uppercase tracking-wide">Avg CLV % by Book</span>
+          <span className="text-xs text-zinc-500">{(clvBets ?? []).filter(b => Math.abs(b.clv!) <= 10).length} qualifying bets</span>
+        </div>
+        <CLVBarChart bets={clvBets ?? []} colorMap={colorMap} />
+      </div>
+
+      {/* CLV by market group */}
+      <div className="grid grid-cols-2 gap-4">
+        {MARKET_GROUPS.map(group => {
+          const groupBets = (clvBets ?? []).filter(b => getMarketGroup(b.market) === group)
+          const qualifyingCount = groupBets.filter(b => Math.abs(b.clv!) <= 10).length
+          return (
+            <div key={group} className="rounded-lg border border-white/5 px-5 py-5">
+              <div className="flex items-baseline gap-2 mb-1">
+                <span className="text-xs font-semibold text-white uppercase tracking-wide">{group} — CLV</span>
+                <span className="text-xs text-zinc-500">{qualifyingCount} qualifying bet{qualifyingCount !== 1 ? 's' : ''}</span>
+              </div>
+              <CLVBarChart bets={groupBets} colorMap={colorMap} />
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 export function StatsPanel({ takenBets }: { takenBets: Bet[] }) {
   const [trainingBets, setTrainingBets] = useState<Bet[] | null>(null)
   const [trainingBetsWithClv, setTrainingBetsWithClv] = useState<Bet[] | null>(null)
-  const [allTakenBets, setAllTakenBets] = useState<Bet[] | null>(null)
-  const [loadError, setLoadError] = useState(false)
+  const [trainingLoadError, setTrainingLoadError] = useState(false)
+
+  const [settledTakenBets, setSettledTakenBets] = useState<Bet[] | null>(null)
+  const [takenBetsWithClv, setTakenBetsWithClv] = useState<Bet[] | null>(null)
+  const [takenLoadError, setTakenLoadError] = useState(false)
 
   useEffect(() => {
     fetchAllSettledTrainingBets()
       .then(data => setTrainingBets(data))
-      .catch(() => setLoadError(true))
-  }, [])
-
-  useEffect(() => {
+      .catch(() => setTrainingLoadError(true))
     fetchAllTrainingBetsWithClv()
       .then(data => setTrainingBetsWithClv(data))
       .catch(() => { /* CLV charts will stay empty */ })
   }, [])
 
   useEffect(() => {
-    fetchAllTakenBets()
-      .then(data => setAllTakenBets(data))
-      .catch(() => { /* use prop as fallback */ })
+    fetchAllSettledTakenBets()
+      .then(data => setSettledTakenBets(data))
+      .catch(() => setTakenLoadError(true))
+    fetchAllTakenBetsWithClv()
+      .then(data => setTakenBetsWithClv(data))
+      .catch(() => { /* CLV charts will stay empty */ })
   }, [])
 
-  const betsForStats = allTakenBets ?? takenBets
-  const settledTaken = betsForStats.filter(b => b.result !== 'pending')
-
-  // Build stable book→color maps so colors are consistent across all charts
-  // Union books from both settled bets (P&L) and CLV bets so colors never shift
+  // Build stable book→color maps so colors are consistent across all charts in each section
   const trainingBooks = [...new Set([
     ...(trainingBets ?? []).map(b => b.book),
     ...(trainingBetsWithClv ?? []).map(b => b.book),
@@ -500,9 +602,15 @@ export function StatsPanel({ takenBets }: { takenBets: Bet[] }) {
   const trainingColorMap: Record<string, string> = Object.fromEntries(
     trainingBooks.map((book, i) => [book, BOOK_COLORS[i % BOOK_COLORS.length]])
   )
+
+  // For taken bet color map, seed from the prop so colors are available before fetch completes
+  const takenBooks = [...new Set([
+    ...takenBets.map(b => b.book),
+    ...(settledTakenBets ?? []).map(b => b.book),
+    ...(takenBetsWithClv ?? []).map(b => b.book),
+  ])].sort()
   const takenColorMap: Record<string, string> = Object.fromEntries(
-    [...new Set(betsForStats.map(b => b.book))].sort()
-      .map((book, i) => [book, BOOK_COLORS[i % BOOK_COLORS.length]])
+    takenBooks.map((book, i) => [book, BOOK_COLORS[i % BOOK_COLORS.length]])
   )
 
   return (
@@ -513,72 +621,30 @@ export function StatsPanel({ takenBets }: { takenBets: Bet[] }) {
           title="Training Stats"
           count={trainingBets ? trainingBets.length : null}
         />
-        {loadError ? (
-          <div className="rounded-lg border border-white/5 px-5 py-5">
-            <div className="text-center py-12 text-red-500 text-sm">Failed to load training bets.</div>
-          </div>
-        ) : trainingBets === null ? (
-          <div className="rounded-lg border border-white/5 px-5 py-5">
-            <div className="text-center py-12 text-zinc-600 text-sm">Loading…</div>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {/* PnL charts */}
-            <div className="rounded-lg border border-white/5 px-5 py-5">
-              <PLChart bets={trainingBets} colorMap={trainingColorMap} />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              {MARKET_GROUPS.map(group => {
-                const groupBets = trainingBets.filter(b => getMarketGroup(b.market) === group)
-                const settledCount = groupBets.filter(b => b.result !== 'pending').length
-                return (
-                  <div key={group} className="rounded-lg border border-white/5 px-5 py-5">
-                    <div className="flex items-baseline gap-2 mb-4">
-                      <span className="text-xs font-semibold text-white uppercase tracking-wide">{group}</span>
-                      <span className="text-xs text-zinc-500">{settledCount} settled bet{settledCount !== 1 ? 's' : ''}</span>
-                    </div>
-                    <PLChart bets={groupBets} colorMap={trainingColorMap} />
-                  </div>
-                )
-              })}
-            </div>
-
-            {/* CLV bar charts */}
-            <div className="rounded-lg border border-white/5 px-5 py-5">
-              <div className="flex items-baseline gap-2 mb-1">
-                <span className="text-xs font-semibold text-white uppercase tracking-wide">Avg CLV % by Book</span>
-                <span className="text-xs text-zinc-500">{(trainingBetsWithClv ?? []).filter(b => Math.abs(b.clv!) <= 10).length} qualifying bets</span>
-              </div>
-              <CLVBarChart bets={trainingBetsWithClv ?? []} colorMap={trainingColorMap} />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              {MARKET_GROUPS.map(group => {
-                const groupBets = (trainingBetsWithClv ?? []).filter(b => getMarketGroup(b.market) === group)
-                const qualifyingCount = groupBets.filter(b => Math.abs(b.clv!) <= 10).length
-                return (
-                  <div key={group} className="rounded-lg border border-white/5 px-5 py-5">
-                    <div className="flex items-baseline gap-2 mb-1">
-                      <span className="text-xs font-semibold text-white uppercase tracking-wide">{group} — CLV</span>
-                      <span className="text-xs text-zinc-500">{qualifyingCount} qualifying bet{qualifyingCount !== 1 ? 's' : ''}</span>
-                    </div>
-                    <CLVBarChart bets={groupBets} colorMap={trainingColorMap} />
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        )}
+        <ChartSection
+          settledBets={trainingBets}
+          clvBets={trainingBetsWithClv}
+          colorMap={trainingColorMap}
+          loading={trainingBets === null}
+          error={trainingLoadError}
+          sectionTitle="training bets"
+        />
       </section>
 
-      {/* ── Real Stats ─────────────────────────────────────────────── */}
+      {/* ── Taken Bet Stats ────────────────────────────────────────── */}
       <section>
         <SectionHeading
-          title="Real Stats"
-          count={settledTaken.length}
+          title="Taken Bet Stats"
+          count={settledTakenBets ? settledTakenBets.length : null}
         />
-        <div className="rounded-lg border border-white/5 px-5 py-5">
-          <PLChart bets={betsForStats} colorMap={takenColorMap} />
-        </div>
+        <ChartSection
+          settledBets={settledTakenBets}
+          clvBets={takenBetsWithClv}
+          colorMap={takenColorMap}
+          loading={settledTakenBets === null}
+          error={takenLoadError}
+          sectionTitle="taken bets"
+        />
       </section>
     </div>
   )
