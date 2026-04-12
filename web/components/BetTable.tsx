@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import type { Bet } from '@/lib/supabase'
+import { supabase } from '@/lib/supabase'
 import { deleteArb } from '@/app/actions'
 
 type BookOddsEntry = { odds: number; liquidity?: number }
@@ -160,6 +161,56 @@ function BookOddsTable({ bookOdds }: { bookOdds: BookOdds }) {
   )
 }
 
+function StakeEditor({ betId, stake }: { betId: string; stake: number | null }) {
+  const displayed = Math.min(stake ?? 100, 100)
+  const [editing, setEditing] = useState(false)
+  const [value, setValue] = useState(String(displayed))
+  const [saved, setSaved] = useState(displayed)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const commit = async () => {
+    const n = parseFloat(value)
+    if (isNaN(n) || n <= 0) {
+      setValue(String(saved))
+      setEditing(false)
+      return
+    }
+    const capped = Math.min(n, 100)
+    setSaved(capped)
+    setValue(String(capped))
+    setEditing(false)
+    await supabase.from('bets').update({ stake: capped }).eq('id', betId)
+  }
+
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        type="number"
+        min={1}
+        max={100}
+        value={value}
+        onChange={e => setValue(e.target.value)}
+        onBlur={commit}
+        onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setValue(String(saved)); setEditing(false) } }}
+        onClick={e => e.stopPropagation()}
+        className="w-14 font-mono text-xs text-zinc-300 bg-zinc-800 border border-zinc-600 rounded px-1.5 py-0.5 text-center focus:outline-none focus:border-blue-500 shrink-0"
+        autoFocus
+      />
+    )
+  }
+
+  return (
+    <span
+      className="font-mono text-xs text-zinc-300 whitespace-nowrap shrink-0 cursor-pointer hover:text-white hover:underline underline-offset-2"
+      title="Click to edit"
+      onClick={e => { e.stopPropagation(); setValue(String(saved)); setEditing(true) }}
+    >
+      ${saved}
+    </span>
+  )
+}
+
 export function BetTable({ bets }: { bets: Bet[] }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [deletedArbs, setDeletedArbs] = useState<Set<string>>(new Set())
@@ -232,9 +283,7 @@ export function BetTable({ bets }: { bets: Bet[] }) {
 
               <TakenBadge is_taken={bet.is_taken} />
               {bet.is_taken && (
-                <span className="font-mono text-xs text-zinc-300 whitespace-nowrap shrink-0">
-                  ${Math.min(bet.stake ?? 100, 100)}
-                </span>
+                <StakeEditor betId={bet.id} stake={bet.stake} />
               )}
               <ResultBadge result={bet.result} />
 
