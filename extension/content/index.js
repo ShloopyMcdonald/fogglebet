@@ -782,7 +782,7 @@ console.log('[FoggleBet] content script loaded', window.location.href)
       } else {
         // Step 2: pick which side
         showSidePicker(arbData, (takenIndex) => {
-          postBets(btn, arbData, takenIndex, /* isTraining */ false)
+          postBets(btn, arbData, takenIndex, /* isTraining */ true)
         })
       }
     })
@@ -825,7 +825,7 @@ console.log('[FoggleBet] content script loaded', window.location.href)
         ev_percent: null,
         arb_percent: arbData.arb_percent,
         book_odds: Object.keys(legBookOdds).length > 0 ? legBookOdds : null,
-        stake: 1,
+        stake: takenIndex !== null && i === takenIndex ? (leg.liquidity ?? 1) : 1,
         source_url,
       }
     })
