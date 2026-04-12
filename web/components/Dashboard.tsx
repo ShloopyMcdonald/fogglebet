@@ -2,8 +2,8 @@
 
 import { useState } from 'react'
 import type { Bet } from '@/lib/supabase'
-import { BetTable } from '@/components/BetTable'
 import { TrainingTable } from '@/components/TrainingTable'
+import { TakenTable } from '@/components/TakenTable'
 import { StatsPanel } from '@/components/StatsPanel'
 import { deleteTodaysBets } from '@/app/actions'
 
@@ -57,13 +57,7 @@ export function Dashboard({ takenBets }: { takenBets: Bet[] }) {
 
       <main className="px-4 py-6 max-w-6xl mx-auto w-full">
         <div className={tab === 'taken' ? '' : 'hidden'}>
-          {takenBets.length === 0 ? (
-            <div className="text-center py-24 text-zinc-500 text-sm">
-              No taken bets yet. Use the Chrome extension on picktheodds.app to log your first bet.
-            </div>
-          ) : (
-            <BetTable bets={takenBets} />
-          )}
+          <TakenTable />
         </div>
 
         <div className={tab === 'stats' ? '' : 'hidden'}>
