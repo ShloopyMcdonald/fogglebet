@@ -531,8 +531,8 @@ console.log('[FoggleBet] content script loaded', window.location.href)
 
   // ─── Side-picker modal ────────────────────────────────────────────────────
 
-  // onSelect(sideIndex, stake)
-  function showSidePicker(arbData, defaultStake, onSelect) {
+  // onSelect(sideIndex)
+  function showSidePicker(arbData, onSelect) {
     const overlay = document.createElement('div')
     overlay.style.cssText = `
       position: fixed;
@@ -599,44 +599,12 @@ console.log('[FoggleBet] content script loaded', window.location.href)
       sideBtn.addEventListener('mouseenter', () => { sideBtn.style.borderColor = '#2563eb' })
       sideBtn.addEventListener('mouseleave', () => { sideBtn.style.borderColor = '#334155' })
       sideBtn.addEventListener('click', () => {
-        const raw = parseFloat(stakeInput.value)
-        const stake = isNaN(raw) || raw <= 0 ? 100 : Math.min(raw, 100)
         document.body.removeChild(overlay)
-        onSelect(i, stake)
+        onSelect(i)
       })
 
       btnRow.appendChild(sideBtn)
     })
-
-    // Stake input row
-    const stakeRow = document.createElement('div')
-    stakeRow.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-top: 14px;'
-
-    const stakeLabel = document.createElement('label')
-    stakeLabel.textContent = 'Stake ($)'
-    stakeLabel.style.cssText = 'font-size: 12px; color: #9ca3af; white-space: nowrap;'
-
-    const stakeInput = document.createElement('input')
-    stakeInput.type = 'number'
-    stakeInput.min = '1'
-    stakeInput.max = '100'
-    stakeInput.value = String(defaultStake)
-    stakeInput.style.cssText = `
-      flex: 1;
-      background: #0f172a;
-      border: 1px solid #334155;
-      border-radius: 4px;
-      padding: 5px 8px;
-      font-size: 13px;
-      font-family: system-ui, sans-serif;
-      color: #e5e5e5;
-      outline: none;
-    `
-    stakeInput.addEventListener('focus', () => { stakeInput.style.borderColor = '#2563eb' })
-    stakeInput.addEventListener('blur', () => { stakeInput.style.borderColor = '#334155' })
-
-    stakeRow.appendChild(stakeLabel)
-    stakeRow.appendChild(stakeInput)
 
     const cancelBtn = document.createElement('button')
     cancelBtn.textContent = 'Cancel'
@@ -655,10 +623,125 @@ console.log('[FoggleBet] content script loaded', window.location.href)
     modal.appendChild(title)
     modal.appendChild(subtitle)
     modal.appendChild(btnRow)
-    modal.appendChild(stakeRow)
     modal.appendChild(cancelBtn)
     overlay.appendChild(modal)
     document.body.appendChild(overlay)
+  }
+
+  // ─── Stake picker modal ───────────────────────────────────────────────────
+
+  function showStakePicker(leg, defaultStake, onConfirm) {
+    const overlay = document.createElement('div')
+    overlay.style.cssText = `
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.6);
+      z-index: 99999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    `
+
+    const modal = document.createElement('div')
+    modal.style.cssText = `
+      background: #1a1a2e;
+      border: 1px solid #2d2d4e;
+      border-radius: 8px;
+      padding: 20px 24px;
+      width: 300px;
+      font-family: system-ui, sans-serif;
+      color: #e5e5e5;
+    `
+
+    const title = document.createElement('h3')
+    title.textContent = 'How much are you taking?'
+    title.style.cssText = 'margin: 0 0 4px; font-size: 15px; color: #fff;'
+
+    const subtitle = document.createElement('p')
+    subtitle.textContent = `${leg.book ?? ''} · ${leg.side_label ?? ''} · ${leg.odds > 0 ? '+' : ''}${leg.odds ?? '—'}`
+    subtitle.style.cssText = 'margin: 0 0 16px; font-size: 12px; color: #9ca3af;'
+
+    const inputRow = document.createElement('div')
+    inputRow.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 14px;'
+
+    const prefix = document.createElement('span')
+    prefix.textContent = '$'
+    prefix.style.cssText = 'font-size: 14px; color: #9ca3af;'
+
+    const input = document.createElement('input')
+    input.type = 'number'
+    input.min = '1'
+    input.max = '100'
+    input.value = String(defaultStake)
+    input.style.cssText = `
+      flex: 1;
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 4px;
+      padding: 6px 10px;
+      font-size: 15px;
+      font-family: system-ui, sans-serif;
+      color: #fff;
+      outline: none;
+      text-align: center;
+    `
+    input.addEventListener('focus', () => { input.style.borderColor = '#2563eb'; input.select() })
+    input.addEventListener('blur', () => { input.style.borderColor = '#334155' })
+
+    inputRow.appendChild(prefix)
+    inputRow.appendChild(input)
+
+    const confirmBtn = document.createElement('button')
+    confirmBtn.textContent = 'Log Bet'
+    confirmBtn.style.cssText = `
+      width: 100%;
+      background: linear-gradient(135deg, #060e2b 0%, #0f1f5c 100%);
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 6px;
+      padding: 9px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #fff;
+      cursor: pointer;
+      font-family: system-ui, sans-serif;
+    `
+    confirmBtn.addEventListener('mouseenter', () => { confirmBtn.style.background = 'linear-gradient(135deg, #0a1435 0%, #0f1f5c 100%)' })
+    confirmBtn.addEventListener('mouseleave', () => { confirmBtn.style.background = 'linear-gradient(135deg, #060e2b 0%, #0f1f5c 100%)' })
+
+    const submit = () => {
+      const raw = parseFloat(input.value)
+      const stake = isNaN(raw) || raw <= 0 ? 100 : Math.min(raw, 100)
+      document.body.removeChild(overlay)
+      onConfirm(stake)
+    }
+
+    confirmBtn.addEventListener('click', submit)
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') submit() })
+
+    const cancelBtn = document.createElement('button')
+    cancelBtn.textContent = 'Cancel'
+    cancelBtn.style.cssText = `
+      margin-top: 8px;
+      background: none;
+      border: none;
+      color: #6b7280;
+      font-size: 12px;
+      cursor: pointer;
+      width: 100%;
+      font-family: system-ui, sans-serif;
+    `
+    cancelBtn.addEventListener('click', () => { document.body.removeChild(overlay) })
+
+    modal.appendChild(title)
+    modal.appendChild(subtitle)
+    modal.appendChild(inputRow)
+    modal.appendChild(confirmBtn)
+    modal.appendChild(cancelBtn)
+    overlay.appendChild(modal)
+    document.body.appendChild(overlay)
+
+    // Auto-focus and select so user can type immediately
+    setTimeout(() => { input.focus(); input.select() }, 50)
   }
 
   // ─── Cell 0 spread extractor ─────────────────────────────────────────────
@@ -814,13 +897,13 @@ console.log('[FoggleBet] content script loaded', window.location.href)
       if (purpose === 'training') {
         postBets(btn, arbData, /* takenIndex */ null, /* isTraining */ true)
       } else {
-        // Step 2: pick which side + confirm stake
-        const leg0Liq = arbData.legs[0]?.liquidity ?? null
-        const leg1Liq = arbData.legs[1]?.liquidity ?? null
-        const maxLiq = Math.max(leg0Liq ?? 0, leg1Liq ?? 0)
-        const defaultStake = maxLiq > 0 ? Math.min(maxLiq, 100) : 100
-        showSidePicker(arbData, defaultStake, (takenIndex, stake) => {
-          postBets(btn, arbData, takenIndex, /* isTraining */ true, stake)
+        // Step 2: pick which side, then confirm stake for that side
+        showSidePicker(arbData, (takenIndex) => {
+          const takenLeg = arbData.legs[takenIndex]
+          const defaultStake = takenLeg.liquidity ? Math.min(takenLeg.liquidity, 100) : 100
+          showStakePicker(takenLeg, defaultStake, (stake) => {
+            postBets(btn, arbData, takenIndex, /* isTraining */ true, stake)
+          })
         })
       }
     })
