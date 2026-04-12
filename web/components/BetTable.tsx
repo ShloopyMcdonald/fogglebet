@@ -3,7 +3,7 @@
 import { useState, useRef } from 'react'
 import type { Bet } from '@/lib/supabase'
 import { supabase } from '@/lib/supabase'
-import { deleteArb } from '@/app/actions'
+import { deleteArb, takeTrainingBet } from '@/app/actions'
 
 type BookOddsEntry = { odds: number; liquidity?: number }
 type BookOdds = Record<string, Record<string, BookOddsEntry>>
@@ -211,6 +211,69 @@ function StakeEditor({ betId, stake }: { betId: string; stake: number | null }) 
   )
 }
 
+function TakeBetButton({ bet }: { bet: Bet }) {
+  type Mode = 'idle' | 'input' | 'loading' | 'done' | 'error'
+  const [mode, setMode] = useState<Mode>('idle')
+  const [stake, setStake] = useState(String(Math.min(bet.liquidity ?? 25, 100)))
+
+  if (mode === 'done') return <span className="text-emerald-400">Taken ✓</span>
+  if (mode === 'error') return <span className="text-red-400">Failed — try again</span>
+
+  if (mode === 'idle') {
+    return (
+      <button
+        onClick={() => setMode('input')}
+        className="text-blue-400 hover:text-blue-300 transition-colors"
+      >
+        Take this bet
+      </button>
+    )
+  }
+
+  const submit = async () => {
+    const n = parseFloat(stake)
+    if (isNaN(n) || n <= 0) return
+    setMode('loading')
+    try {
+      await takeTrainingBet(bet.id, Math.min(n, 100))
+      setMode('done')
+    } catch {
+      setMode('error')
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-zinc-500">Stake $</span>
+      <input
+        type="number"
+        min={1}
+        max={100}
+        value={stake}
+        onChange={e => setStake(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter') submit(); if (e.key === 'Escape') setMode('idle') }}
+        disabled={mode === 'loading'}
+        className="w-16 font-mono text-zinc-300 bg-zinc-800 border border-zinc-600 rounded px-1.5 py-0.5 text-center focus:outline-none focus:border-blue-500"
+        autoFocus
+      />
+      <button
+        onClick={submit}
+        disabled={mode === 'loading'}
+        className="text-blue-400 hover:text-blue-300 disabled:text-zinc-600 transition-colors"
+      >
+        {mode === 'loading' ? 'Taking…' : 'Confirm'}
+      </button>
+      <button
+        onClick={() => setMode('idle')}
+        disabled={mode === 'loading'}
+        className="text-zinc-600 hover:text-zinc-400 transition-colors"
+      >
+        Cancel
+      </button>
+    </div>
+  )
+}
+
 export function BetTable({ bets }: { bets: Bet[] }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [deletedArbs, setDeletedArbs] = useState<Set<string>>(new Set())
@@ -331,6 +394,7 @@ export function BetTable({ bets }: { bets: Bet[] }) {
                       <div>P&L: <span className={bet.profit_loss > 0 ? 'text-emerald-400' : 'text-red-400'}>{bet.profit_loss > 0 ? '+' : ''}{bet.profit_loss.toFixed(2)}u</span></div>
                     )}
                   </div>
+                  {bet.is_training && <TakeBetButton bet={bet} />}
                 </div>
               </div>
             )}
