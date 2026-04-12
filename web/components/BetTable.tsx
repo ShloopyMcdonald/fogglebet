@@ -230,6 +230,7 @@ export function BetTable({ bets }: { bets: Bet[] }) {
                 )}
               </div>
 
+              <TakenBadge is_taken={bet.is_taken} />
               <ResultBadge result={bet.result} />
 
               <span className="text-zinc-500 hover:text-emerald-600/80 transition-colors shrink-0">
