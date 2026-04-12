@@ -175,7 +175,7 @@ console.log('[FoggleBet] content script loaded', window.location.href)
     return false
   }
 
-  const TARGET_BOOKS = ['NoVig', 'ProphetX', 'Polymarket (INT)', 'Pinnacle', 'Circa', 'FanDuel']
+  const TARGET_BOOKS = ['NoVig', 'ProphetX', 'Polymarket (INT)', 'Pinnacle', 'Circa', 'FanDuel', 'Kalshi', 'Polymarket (US)', 'Coinbase']
 
   function parseDollarAmount(text) {
     if (!text) return null
