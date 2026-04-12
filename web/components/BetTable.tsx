@@ -231,6 +231,11 @@ export function BetTable({ bets }: { bets: Bet[] }) {
               </div>
 
               <TakenBadge is_taken={bet.is_taken} />
+              {bet.is_taken && (
+                <span className="font-mono text-xs text-zinc-300 whitespace-nowrap shrink-0">
+                  ${Math.min(bet.stake ?? 100, 100)}
+                </span>
+              )}
               <ResultBadge result={bet.result} />
 
               <span className="text-zinc-500 hover:text-emerald-600/80 transition-colors shrink-0">

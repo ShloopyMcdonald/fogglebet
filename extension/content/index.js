@@ -825,7 +825,7 @@ console.log('[FoggleBet] content script loaded', window.location.href)
         ev_percent: null,
         arb_percent: arbData.arb_percent,
         book_odds: Object.keys(legBookOdds).length > 0 ? legBookOdds : null,
-        stake: takenIndex !== null && i === takenIndex ? (leg.liquidity ?? 1) : 1,
+        stake: takenIndex !== null && i === takenIndex ? Math.min(leg.liquidity ?? 100, 100) : 1,
         source_url,
       }
     })
