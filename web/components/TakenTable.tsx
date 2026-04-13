@@ -99,7 +99,7 @@ function PnlBadge({ pnl }: { pnl: number | null }) {
   const color = pnl > 0 ? 'text-emerald-400' : pnl < 0 ? 'text-red-400' : 'text-zinc-500'
   return (
     <span className={`text-xs font-mono ${color}`}>
-      {pnl > 0 ? '+' : ''}{pnl.toFixed(2)}u
+      {pnl > 0 ? '+$' : pnl < 0 ? '-$' : '$'}{Math.abs(pnl).toFixed(2)}
     </span>
   )
 }
