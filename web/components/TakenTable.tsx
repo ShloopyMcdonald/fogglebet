@@ -43,15 +43,14 @@ function formatDayLabel(dayKey: string): string {
 
 // ─── Structure types ──────────────────────────────────────────────────────────
 
-type SummaryItem = { recorded_at: string; arb_id: string; stake: number | null; is_taken: boolean }
+type SummaryItem = { recorded_at: string; arb_id: string; stake: number | null; is_taken: boolean; profit_loss: number | null }
 
-interface DayGroup   { dayKey: string;  betCount: number; volume: number }
-interface WeekGroup  { weekKey: string; betCount: number; volume: number; days: DayGroup[] }
-interface MonthGroup { monthKey: string; betCount: number; volume: number; weeks: WeekGroup[] }
+interface DayGroup   { dayKey: string;  betCount: number; volume: number; pnl: number | null }
+interface WeekGroup  { weekKey: string; betCount: number; volume: number; pnl: number | null; days: DayGroup[] }
+interface MonthGroup { monthKey: string; betCount: number; volume: number; pnl: number | null; weeks: WeekGroup[] }
 
 function buildStructure(items: SummaryItem[]): MonthGroup[] {
-  // monthKey → weekKey → dayKey → { count, volume }
-  const monthMap = new Map<string, Map<string, Map<string, { count: number; volume: number }>>>()
+  const monthMap = new Map<string, Map<string, Map<string, { count: number; volume: number; pnl: number | null }>>>()
 
   for (const item of items) {
     const d = new Date(item.recorded_at)
@@ -63,29 +62,46 @@ function buildStructure(items: SummaryItem[]): MonthGroup[] {
     const weekMap = monthMap.get(monthKey)!
     if (!weekMap.has(weekKey)) weekMap.set(weekKey, new Map())
     const dayMap = weekMap.get(weekKey)!
-    const prev = dayMap.get(dayKey) ?? { count: 0, volume: 0 }
-    // Only count stake from the taken leg
+    const prev = dayMap.get(dayKey) ?? { count: 0, volume: 0, pnl: null }
     const addedVolume = item.is_taken ? (item.stake ?? 0) : 0
-    dayMap.set(dayKey, { count: prev.count + 1, volume: prev.volume + addedVolume })
+    const addedPnl = item.profit_loss
+    const newPnl = addedPnl != null ? (prev.pnl ?? 0) + addedPnl : prev.pnl
+    dayMap.set(dayKey, { count: prev.count + 1, volume: prev.volume + addedVolume, pnl: newPnl })
   }
 
   return Array.from(monthMap.entries()).map(([monthKey, weekMap]) => {
     let monthBetCount = 0
     let monthVolume = 0
+    let monthPnl: number | null = null
     const weeks = Array.from(weekMap.entries()).map(([weekKey, dayMap]) => {
       let weekBetCount = 0
       let weekVolume = 0
-      const days = Array.from(dayMap.entries()).map(([dayKey, { count, volume }]) => {
+      let weekPnl: number | null = null
+      const days = Array.from(dayMap.entries()).map(([dayKey, { count, volume, pnl }]) => {
         weekBetCount += count
         weekVolume += volume
-        return { dayKey, betCount: count, volume }
+        if (pnl != null) weekPnl = (weekPnl ?? 0) + pnl
+        return { dayKey, betCount: count, volume, pnl }
       })
       monthBetCount += weekBetCount
       monthVolume += weekVolume
-      return { weekKey, betCount: weekBetCount, volume: weekVolume, days }
+      if (weekPnl != null) monthPnl = (monthPnl ?? 0) + weekPnl
+      return { weekKey, betCount: weekBetCount, volume: weekVolume, pnl: weekPnl, days }
     })
-    return { monthKey, betCount: monthBetCount, volume: monthVolume, weeks }
+    return { monthKey, betCount: monthBetCount, volume: monthVolume, pnl: monthPnl, weeks }
   })
+}
+
+// ─── P&L display ─────────────────────────────────────────────────────────────
+
+function PnlBadge({ pnl }: { pnl: number | null }) {
+  if (pnl == null) return null
+  const color = pnl > 0 ? 'text-emerald-400' : pnl < 0 ? 'text-red-400' : 'text-zinc-500'
+  return (
+    <span className={`text-xs font-mono ${color}`}>
+      {pnl > 0 ? '+' : ''}{pnl.toFixed(2)}u
+    </span>
+  )
 }
 
 // ─── Chevron ──────────────────────────────────────────────────────────────────
@@ -127,7 +143,7 @@ export function TakenTable() {
       while (true) {
         const { data, error } = await supabase
           .from('bets')
-          .select('recorded_at, arb_id, stake, is_taken')
+          .select('recorded_at, arb_id, stake, is_taken, profit_loss')
           .eq('is_taken', true)
           .order('recorded_at', { ascending: true })
           .range(offset, offset + PAGE - 1)
@@ -206,7 +222,7 @@ export function TakenTable() {
 
   return (
     <div className="space-y-2">
-      {structure.map(({ monthKey, betCount: monthBetCount, volume: monthVolume, weeks }) => {
+      {structure.map(({ monthKey, betCount: monthBetCount, volume: monthVolume, pnl: monthPnl, weeks }) => {
         const monthOpen = openMonths.has(monthKey)
         return (
           <div key={monthKey} className="rounded-lg border border-white/5 overflow-hidden">
@@ -216,6 +232,7 @@ export function TakenTable() {
             >
               <span className="text-sm font-semibold text-white">{formatMonthLabel(monthKey)}</span>
               <div className="flex items-center gap-3 text-zinc-500">
+                <PnlBadge pnl={monthPnl} />
                 {monthVolume > 0 && <span className="text-xs font-mono">${monthVolume.toLocaleString()}</span>}
                 <span className="text-xs">{monthBetCount.toLocaleString()} bets</span>
                 <Chevron open={monthOpen} />
@@ -224,7 +241,7 @@ export function TakenTable() {
 
             {monthOpen && (
               <div className="border-t border-white/5">
-                {weeks.map(({ weekKey, betCount: weekBetCount, volume: weekVolume, days }) => {
+                {weeks.map(({ weekKey, betCount: weekBetCount, volume: weekVolume, pnl: weekPnl, days }) => {
                   const weekOpen = openWeeks.has(weekKey)
                   return (
                     <div key={weekKey} className="border-b border-white/5 last:border-0">
@@ -234,6 +251,7 @@ export function TakenTable() {
                       >
                         <span className="text-sm font-medium text-zinc-300">{formatWeekLabel(weekKey)}</span>
                         <div className="flex items-center gap-3 text-zinc-500">
+                          <PnlBadge pnl={weekPnl} />
                           {weekVolume > 0 && <span className="text-xs font-mono">${weekVolume.toLocaleString()}</span>}
                           <span className="text-xs">{weekBetCount.toLocaleString()} bets</span>
                           <Chevron open={weekOpen} />
@@ -242,7 +260,7 @@ export function TakenTable() {
 
                       {weekOpen && (
                         <div className="border-t border-white/5">
-                          {days.map(({ dayKey, betCount: dayBetCount, volume: dayVolume }) => {
+                          {days.map(({ dayKey, betCount: dayBetCount, volume: dayVolume, pnl: dayPnl }) => {
                             const dayOpen = openDays.has(dayKey)
                             const data = dayData.get(dayKey)
                             return (
@@ -253,6 +271,7 @@ export function TakenTable() {
                                 >
                                   <span className="text-xs font-medium text-zinc-400">{formatDayLabel(dayKey)}</span>
                                   <div className="flex items-center gap-3 text-zinc-600">
+                                    <PnlBadge pnl={dayPnl} />
                                     {dayVolume > 0 && (
                                       <span className="text-xs font-mono text-zinc-400">${dayVolume.toLocaleString()}</span>
                                     )}
