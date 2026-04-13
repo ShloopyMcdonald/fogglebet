@@ -391,7 +391,7 @@ export function BetTable({ bets }: { bets: Bet[] }) {
                       <div>Closing: <span className="text-zinc-300">{formatOdds(bet.closing_odds)}{bet.closing_book ? ` (${bet.closing_book})` : ''}</span></div>
                     )}
                     {bet.profit_loss != null && (
-                      <div>P&L: <span className={bet.profit_loss > 0 ? 'text-emerald-400' : 'text-red-400'}>{bet.profit_loss > 0 ? '+' : ''}{bet.profit_loss.toFixed(2)}u</span></div>
+                      <div>P&L: <span className={bet.profit_loss > 0 ? 'text-emerald-400' : 'text-red-400'}>{bet.profit_loss > 0 ? '+$' : '-$'}{Math.abs(bet.profit_loss).toFixed(2)}</span></div>
                     )}
                   </div>
                   {bet.is_training && <TakeBetButton bet={bet} />}
