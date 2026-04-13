@@ -388,16 +388,15 @@ function CLVBarChart({ bets, colorMap }: { bets: Bet[]; colorMap?: Record<string
   )
 }
 
-const MARKET_GROUPS = ['Moneyline', 'Spread', 'Totals', 'Player Props'] as const
-type MarketGroup = typeof MARKET_GROUPS[number]
+type MarketGroup = 'Main Markets' | 'Player Props'
 
-function getMarketGroup(market: string | null): MarketGroup | null {
-  if (!market) return null
-  if (market === 'Moneyline') return 'Moneyline'
-  if (market === 'Spread') return 'Spread'
-  if (market === 'Total' || market.startsWith('Total ')) return 'Totals'
-  return 'Player Props'
+function getMarketGroup(market: string | null): MarketGroup {
+  if (!market) return 'Main Markets'
+  if (market.includes(' - ') && market !== 'Moneyline' && market !== 'Spread' && !market.startsWith('Total')) return 'Player Props'
+  return 'Main Markets'
 }
+
+const MARKET_GROUPS: MarketGroup[] = ['Main Markets', 'Player Props']
 
 function SectionHeading({ title, count }: { title: string; count: number | null }) {
   return (
@@ -522,7 +521,7 @@ function ChartSection({
       </div>
 
       {/* P&L by market group */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="space-y-4">
         {MARKET_GROUPS.map(group => {
           const groupBets = settledBets.filter(b => getMarketGroup(b.market) === group)
           const settledCount = groupBets.filter(b => b.result !== 'pending').length
@@ -548,7 +547,7 @@ function ChartSection({
       </div>
 
       {/* CLV by market group */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="space-y-4">
         {MARKET_GROUPS.map(group => {
           const groupBets = (clvBets ?? []).filter(b => getMarketGroup(b.market) === group)
           const qualifyingCount = groupBets.filter(b => Math.abs(b.clv!) <= 10).length
