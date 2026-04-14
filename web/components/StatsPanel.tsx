@@ -4,6 +4,8 @@ import { useState, useEffect, useRef } from 'react'
 import type { Bet, BetResult } from '@/lib/supabase'
 import { supabase } from '@/lib/supabase'
 
+const EXCLUDED_BOOKS = new Set(['Coinbase', 'Polymarket US', 'Kalshi'])
+
 const BOOK_COLORS = [
   '#34d399', // emerald
   '#60a5fa', // blue
@@ -40,10 +42,10 @@ function niceTicks(min: number, max: number): number[] {
   return ticks
 }
 
-function PLChart({ bets, colorMap }: { bets: Bet[]; colorMap?: Record<string, string> }) {
+function PLChart({ bets, colorMap, originTime }: { bets: Bet[]; colorMap?: Record<string, string>; originTime?: number }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [tooltip, setTooltip] = useState<{ book: string; color: string; x: number; y: number } | null>(null)
-  const settled = bets.filter(b => b.result !== 'pending')
+  const settled = bets.filter(b => b.result !== 'pending' && !EXCLUDED_BOOKS.has(b.book))
 
   if (settled.length === 0) {
     return (
@@ -66,19 +68,25 @@ function PLChart({ bets, colorMap }: { bets: Bet[]; colorMap?: Record<string, st
 
     const sortedDays = [...dayMap.entries()].sort(([a], [b]) => a.localeCompare(b))
 
-    const ORIGIN_TIME = new Date('2026-03-27T12:00:00Z').getTime()
-
     let cum = 0
-    const points: { time: number; cumPL: number }[] = [{ time: ORIGIN_TIME, cumPL: 0 }]
+    const points: { time: number; cumPL: number }[] = []
     for (const [dayKey, pl] of sortedDays) {
       cum += pl
       const time = new Date(dayKey + 'T12:00:00Z').getTime()
-      if (time > ORIGIN_TIME) points.push({ time, cumPL: parseFloat(cum.toFixed(4)) })
+      points.push({ time, cumPL: parseFloat(cum.toFixed(4)) })
     }
     return { book, points, total: cum }
   })
 
-  const ORIGIN_TIME = new Date('2026-03-27T12:00:00Z').getTime()
+  // Derive origin: use prop if provided, otherwise the earliest data point minus one day
+  const earliestDataTime = Math.min(...series.flatMap(s => s.points.map(p => p.time)).filter(t => isFinite(t)))
+  const ORIGIN_TIME = originTime ?? (isFinite(earliestDataTime) ? earliestDataTime - 86400000 : new Date('2026-03-27T12:00:00Z').getTime())
+
+  // Prepend origin point to each series
+  for (const s of series) {
+    s.points.unshift({ time: ORIGIN_TIME, cumPL: 0 })
+  }
+
   const allTimes = [ORIGIN_TIME, ...series.flatMap(s => s.points.map(p => p.time))]
   const allPLs = series.flatMap(s => s.points.map(p => p.cumPL))
   const minTime = ORIGIN_TIME
@@ -275,7 +283,7 @@ function PLChart({ bets, colorMap }: { bets: Bet[]; colorMap?: Record<string, st
 
 function CLVBarChart({ bets, colorMap }: { bets: Bet[]; colorMap?: Record<string, string> }) {
   // Exclude outliers beyond ±10%
-  const withClv = bets.filter(b => b.clv !== null && Math.abs(b.clv) <= 10)
+  const withClv = bets.filter(b => b.clv !== null && Math.abs(b.clv) <= 10 && !EXCLUDED_BOOKS.has(b.book))
 
   if (withClv.length === 0) {
     return (
@@ -490,6 +498,7 @@ function ChartSection({
   loading,
   error,
   sectionTitle,
+  originTime,
 }: {
   settledBets: Bet[] | null
   clvBets: Bet[] | null
@@ -497,6 +506,7 @@ function ChartSection({
   loading: boolean
   error: boolean
   sectionTitle: string
+  originTime?: number
 }) {
   if (error) {
     return (
@@ -517,7 +527,7 @@ function ChartSection({
     <div className="space-y-4">
       {/* Overall P&L */}
       <div className="rounded-lg border border-white/5 px-5 py-5">
-        <PLChart bets={settledBets} colorMap={colorMap} />
+        <PLChart bets={settledBets} colorMap={colorMap} originTime={originTime} />
       </div>
 
       {/* P&L by market group */}
@@ -531,7 +541,7 @@ function ChartSection({
                 <span className="text-xs font-semibold text-white uppercase tracking-wide">{group}</span>
                 <span className="text-xs text-zinc-500">{settledCount} settled bet{settledCount !== 1 ? 's' : ''}</span>
               </div>
-              <PLChart bets={groupBets} colorMap={colorMap} />
+              <PLChart bets={groupBets} colorMap={colorMap} originTime={originTime} />
             </div>
           )
         })}
@@ -597,7 +607,7 @@ export function StatsPanel({ takenBets }: { takenBets: Bet[] }) {
   const trainingBooks = [...new Set([
     ...(trainingBets ?? []).map(b => b.book),
     ...(trainingBetsWithClv ?? []).map(b => b.book),
-  ])].sort()
+  ])].filter(b => !EXCLUDED_BOOKS.has(b)).sort()
   const trainingColorMap: Record<string, string> = Object.fromEntries(
     trainingBooks.map((book, i) => [book, BOOK_COLORS[i % BOOK_COLORS.length]])
   )
@@ -607,10 +617,15 @@ export function StatsPanel({ takenBets }: { takenBets: Bet[] }) {
     ...takenBets.map(b => b.book),
     ...(settledTakenBets ?? []).map(b => b.book),
     ...(takenBetsWithClv ?? []).map(b => b.book),
-  ])].sort()
+  ])].filter(b => !EXCLUDED_BOOKS.has(b)).sort()
   const takenColorMap: Record<string, string> = Object.fromEntries(
     takenBooks.map((book, i) => [book, BOOK_COLORS[i % BOOK_COLORS.length]])
   )
+
+  // Origin for taken bet charts: one day before the earliest taken bet
+  const takenOriginTime = settledTakenBets && settledTakenBets.length > 0
+    ? Math.min(...settledTakenBets.map(b => new Date(b.game_time ?? b.recorded_at).getTime())) - 86400000
+    : undefined
 
   return (
     <div className="space-y-10">
@@ -643,6 +658,7 @@ export function StatsPanel({ takenBets }: { takenBets: Bet[] }) {
           loading={settledTakenBets === null}
           error={takenLoadError}
           sectionTitle="taken bets"
+          originTime={takenOriginTime}
         />
       </section>
     </div>
