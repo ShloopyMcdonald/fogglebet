@@ -161,11 +161,19 @@ function BookOddsTable({ bookOdds }: { bookOdds: BookOdds }) {
   )
 }
 
-function StakeEditor({ betId, stake }: { betId: string; stake: number | null }) {
-  const displayed = Math.min(stake ?? 100, 100)
+// Books where we take all available liquidity with no dollar cap
+const UNCAPPED_BOOKS = new Set(['Novig', 'Kalshi', 'Polymarket US', 'ProphetX'])
+
+function defaultStake(book: string, liquidity: number | null): number {
+  if (UNCAPPED_BOOKS.has(book)) return liquidity ?? 0
+  return Math.min(liquidity ?? 250, 250)
+}
+
+function StakeEditor({ betId, stake, book }: { betId: string; stake: number | null; book: string }) {
+  const initial = stake ?? defaultStake(book, null)
   const [editing, setEditing] = useState(false)
-  const [value, setValue] = useState(String(displayed))
-  const [saved, setSaved] = useState(displayed)
+  const [value, setValue] = useState(String(initial))
+  const [saved, setSaved] = useState(initial)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const commit = async () => {
@@ -175,7 +183,7 @@ function StakeEditor({ betId, stake }: { betId: string; stake: number | null }) 
       setEditing(false)
       return
     }
-    const capped = Math.min(n, 100)
+    const capped = UNCAPPED_BOOKS.has(book) ? n : Math.min(n, 250)
     setSaved(capped)
     setValue(String(capped))
     setEditing(false)
@@ -188,7 +196,6 @@ function StakeEditor({ betId, stake }: { betId: string; stake: number | null }) 
         ref={inputRef}
         type="number"
         min={1}
-        max={100}
         value={value}
         onChange={e => setValue(e.target.value)}
         onBlur={commit}
@@ -214,7 +221,7 @@ function StakeEditor({ betId, stake }: { betId: string; stake: number | null }) 
 function TakeBetButton({ bet }: { bet: Bet }) {
   type Mode = 'idle' | 'input' | 'loading' | 'done' | 'error'
   const [mode, setMode] = useState<Mode>('idle')
-  const [stake, setStake] = useState(String(Math.min(bet.liquidity ?? 25, 100)))
+  const [stake, setStake] = useState(String(defaultStake(bet.book, bet.liquidity)))
 
   if (mode === 'done') return <span className="text-emerald-400">Taken ✓</span>
   if (mode === 'error') return <span className="text-red-400">Failed — try again</span>
@@ -234,8 +241,9 @@ function TakeBetButton({ bet }: { bet: Bet }) {
     const n = parseFloat(stake)
     if (isNaN(n) || n <= 0) return
     setMode('loading')
+    const capped = UNCAPPED_BOOKS.has(bet.book) ? n : Math.min(n, 250)
     try {
-      await takeTrainingBet(bet.id, Math.min(n, 100))
+      await takeTrainingBet(bet.id, capped)
       setMode('done')
     } catch {
       setMode('error')
@@ -248,7 +256,6 @@ function TakeBetButton({ bet }: { bet: Bet }) {
       <input
         type="number"
         min={1}
-        max={100}
         value={stake}
         onChange={e => setStake(e.target.value)}
         onKeyDown={e => { if (e.key === 'Enter') submit(); if (e.key === 'Escape') setMode('idle') }}
@@ -346,7 +353,7 @@ export function BetTable({ bets }: { bets: Bet[] }) {
 
               <TakenBadge is_taken={bet.is_taken} />
               {bet.is_taken && (
-                <StakeEditor betId={bet.id} stake={bet.stake} />
+                <StakeEditor betId={bet.id} stake={bet.stake} book={bet.book} />
               )}
               <ResultBadge result={bet.result} />
 
