@@ -162,7 +162,7 @@ function BookOddsTable({ bookOdds }: { bookOdds: BookOdds }) {
 }
 
 // Books where we take all available liquidity with no dollar cap
-const UNCAPPED_BOOKS = new Set(['Novig', 'Kalshi', 'Polymarket US', 'ProphetX'])
+const UNCAPPED_BOOKS = new Set(['NoVig', 'Kalshi', 'Polymarket (US)', 'ProphetX'])
 
 function defaultStake(book: string, liquidity: number | null): number {
   if (UNCAPPED_BOOKS.has(book)) return liquidity ?? 0

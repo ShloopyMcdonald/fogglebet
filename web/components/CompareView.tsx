@@ -7,7 +7,7 @@ import { BetTable } from '@/components/BetTable'
 
 // ─── Exchange books (subject to liquidity filter) ─────────────────────────────
 
-const EXCHANGE_BOOKS = new Set(['Novig', 'Kalshi', 'ProphetX', 'Polymarket US'])
+const EXCHANGE_BOOKS = new Set(['NoVig', 'Kalshi', 'ProphetX', 'Polymarket (US)'])
 
 // ─── Market filter ────────────────────────────────────────────────────────────
 

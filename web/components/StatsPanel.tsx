@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import type { Bet, BetResult } from '@/lib/supabase'
 import { supabase } from '@/lib/supabase'
 
-const EXCLUDED_BOOKS = new Set(['Coinbase', 'Polymarket US', 'Kalshi'])
+const EXCLUDED_BOOKS = new Set(['Coinbase', 'Polymarket (US)', 'Kalshi'])
 
 const BOOK_COLORS = [
   '#34d399', // emerald
