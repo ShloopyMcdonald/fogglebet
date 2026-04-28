@@ -5,23 +5,27 @@ import type { Bet } from '@/lib/supabase'
 import { TrainingTable } from '@/components/TrainingTable'
 import { TakenTable } from '@/components/TakenTable'
 import { StatsPanel } from '@/components/StatsPanel'
+import { CompareView } from '@/components/CompareView'
 import { deleteTodaysBets } from '@/app/actions'
 
-type Tab = 'taken' | 'training' | 'stats'
+type Tab = 'taken' | 'training' | 'stats' | 'compare'
 
 const TABS: { label: string; value: Tab }[] = [
   { label: 'Taken Bets', value: 'taken' },
   { label: 'Stats', value: 'stats' },
+  { label: 'Compare', value: 'compare' },
   { label: 'Training Data', value: 'training' },
 ]
 
 export function Dashboard({ takenBets }: { takenBets: Bet[] }) {
   const [tab, setTab] = useState<Tab>('taken')
   const [trainingEverOpened, setTrainingEverOpened] = useState(false)
+  const [compareEverOpened, setCompareEverOpened] = useState(false)
 
   const handleTabClick = (value: Tab) => {
     setTab(value)
     if (value === 'training') setTrainingEverOpened(true)
+    if (value === 'compare') setCompareEverOpened(true)
   }
 
   const handleDeleteToday = async () => {
@@ -63,6 +67,12 @@ export function Dashboard({ takenBets }: { takenBets: Bet[] }) {
         <div className={tab === 'stats' ? '' : 'hidden'}>
           <StatsPanel takenBets={takenBets} />
         </div>
+
+        {compareEverOpened && (
+          <div className={tab === 'compare' ? '' : 'hidden'}>
+            <CompareView />
+          </div>
+        )}
 
         {trainingEverOpened && (
           <div className={tab === 'training' ? '' : 'hidden'}>
