@@ -5,6 +5,10 @@ import type { Bet, BetResult } from '@/lib/supabase'
 import { supabase } from '@/lib/supabase'
 import { BetTable } from '@/components/BetTable'
 
+// ─── Exchange books (subject to liquidity filter) ─────────────────────────────
+
+const EXCHANGE_BOOKS = new Set(['Novig', 'Kalshi', 'ProphetX', 'Polymarket US'])
+
 // ─── Market filter ────────────────────────────────────────────────────────────
 
 type MarketFilter = 'All' | 'Moneyline' | 'Spread' | 'Total' | 'Player Props'
@@ -50,6 +54,7 @@ export function CompareView() {
   const [bookA, setBookA] = useState('')
   const [bookB, setBookB] = useState('')
   const [marketFilter, setMarketFilter] = useState<MarketFilter>('All')
+  const [minLiquidity, setMinLiquidity] = useState(0)
 
   const [fetchState, setFetchState] = useState<FetchState>('idle')
   const [allBets, setAllBets] = useState<Bet[] | null>(null)
@@ -146,15 +151,27 @@ export function CompareView() {
     return () => { cancelled = true }
   }, [bookA, bookB])
 
-  // Apply market filter client-side at arb level
+  // Apply market + liquidity filters client-side at arb level
   const filteredBets = useMemo(() => {
     if (!allBets) return null
+
+    // Pass 1: market filter
     const qualifying = new Set<string>()
     for (const bet of allBets) {
       if (matchesMarket(bet.market, marketFilter)) qualifying.add(bet.arb_id)
     }
+
+    // Pass 2: exchange liquidity filter — remove arbs where any exchange leg is below minimum
+    if (minLiquidity > 0) {
+      for (const bet of allBets) {
+        if (qualifying.has(bet.arb_id) && EXCHANGE_BOOKS.has(bet.book) && (bet.liquidity ?? 0) < minLiquidity) {
+          qualifying.delete(bet.arb_id)
+        }
+      }
+    }
+
     return allBets.filter(b => qualifying.has(b.arb_id))
-  }, [allBets, marketFilter])
+  }, [allBets, marketFilter, minLiquidity])
 
   // Summary stats — P&L per book in units from training results
   const summary = useMemo(() => {
@@ -226,6 +243,21 @@ export function CompareView() {
                 {f}
               </button>
             ))}
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <label className="text-xs text-zinc-500 uppercase tracking-wide">Min Exchange Liq</label>
+          <div className="flex items-center gap-1.5">
+            <span className="text-zinc-500 text-sm">$</span>
+            <input
+              type="number"
+              min={0}
+              step={25}
+              value={minLiquidity}
+              onChange={e => setMinLiquidity(Math.max(0, parseInt(e.target.value) || 0))}
+              className="w-20 bg-zinc-900 border border-white/10 rounded px-2 py-2 text-sm text-white font-mono focus:outline-none focus:border-white/30"
+            />
           </div>
         </div>
       </div>
