@@ -54,6 +54,7 @@ export function CompareView() {
   const [bookA, setBookA] = useState('')
   const [bookB, setBookB] = useState('')
   const [marketFilter, setMarketFilter] = useState<MarketFilter>('All')
+  const [ouFilter, setOuFilter] = useState<'Both' | 'Overs' | 'Unders'>('Both')
   const [minLiquidity, setMinLiquidity] = useState(0)
 
   const [fetchState, setFetchState] = useState<FetchState>('idle')
@@ -170,8 +171,19 @@ export function CompareView() {
       }
     }
 
+    // Pass 3: over/under filter on bookA's leg (only meaningful for Player Props)
+    if (marketFilter === 'Player Props' && ouFilter !== 'Both') {
+      const target = ouFilter === 'Overs' ? 'over' : 'under'
+      for (const bet of allBets) {
+        if (qualifying.has(bet.arb_id) && bet.book === bookA) {
+          const line = (bet.line ?? '').toLowerCase()
+          if (!line.startsWith(target)) qualifying.delete(bet.arb_id)
+        }
+      }
+    }
+
     return allBets.filter(b => qualifying.has(b.arb_id))
-  }, [allBets, marketFilter, minLiquidity])
+  }, [allBets, marketFilter, ouFilter, minLiquidity, bookA])
 
   // Summary stats — P&L per book in units from training results
   const summary = useMemo(() => {
@@ -245,6 +257,25 @@ export function CompareView() {
             ))}
           </div>
         </div>
+
+        {marketFilter === 'Player Props' && (
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-zinc-500 uppercase tracking-wide">Direction</label>
+            <div className="flex gap-1">
+              {(['Both', 'Overs', 'Unders'] as const).map(f => (
+                <button
+                  key={f}
+                  onClick={() => setOuFilter(f)}
+                  className={`px-3 py-2 rounded text-xs font-medium transition-colors ${
+                    ouFilter === f ? 'bg-white/10 text-white' : 'text-zinc-500 hover:text-zinc-300'
+                  }`}
+                >
+                  {f}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="flex flex-col gap-1">
           <label className="text-xs text-zinc-500 uppercase tracking-wide">Min Exchange Liq</label>
