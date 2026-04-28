@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
-import type { Bet } from '@/lib/supabase'
+import type { Bet, BetResult } from '@/lib/supabase'
 import { supabase } from '@/lib/supabase'
 import { BetTable } from '@/components/BetTable'
 
@@ -18,6 +18,14 @@ function matchesMarket(market: string | null, filter: MarketFilter): boolean {
   return m === filter
 }
 
+// ─── Unit P&L (training bets have no stored profit_loss) ─────────────────────
+
+function unitPL(odds: number, result: BetResult): number {
+  if (result === 'push') return 0
+  if (result === 'loss') return -1
+  return odds > 0 ? odds / 100 : 100 / Math.abs(odds)
+}
+
 // ─── Summary card ─────────────────────────────────────────────────────────────
 
 function StatCard({ label, value, color = 'text-white' }: { label: string; value: string; color?: string }) {
@@ -27,6 +35,10 @@ function StatCard({ label, value, color = 'text-white' }: { label: string; value
       <div className={`text-xl font-mono font-semibold ${color}`}>{value}</div>
     </div>
   )
+}
+
+function formatPnl(v: number): string {
+  return `${v >= 0 ? '+' : ''}${v.toFixed(2)}u`
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
@@ -42,7 +54,7 @@ export function CompareView() {
   const [fetchState, setFetchState] = useState<FetchState>('idle')
   const [allBets, setAllBets] = useState<Bet[] | null>(null)
 
-  // Load distinct books on first render
+  // Load distinct books from training data on first render
   useEffect(() => {
     async function loadBooks() {
       const PAGE = 1000
@@ -52,6 +64,7 @@ export function CompareView() {
         const { data, error } = await supabase
           .from('bets')
           .select('book')
+          .eq('is_training', true)
           .range(offset, offset + PAGE - 1)
         if (error || !data || data.length === 0) break
         for (const row of data as { book: string }[]) seen.add(row.book)
@@ -63,7 +76,7 @@ export function CompareView() {
     loadBooks()
   }, [])
 
-  // Fetch when both books are selected
+  // Fetch training arbs where both books appear
   useEffect(() => {
     if (!bookA || !bookB || bookA === bookB) {
       setAllBets(null)
@@ -77,7 +90,7 @@ export function CompareView() {
 
     ;(async () => {
       try {
-        // Phase 1: lightweight — find arb_ids where both books appear
+        // Phase 1: lightweight — find arb_ids from training data where both books appear
         const PAGE = 1000
         const lightweight: { arb_id: string; book: string; market: string | null }[] = []
         let offset = 0
@@ -85,6 +98,7 @@ export function CompareView() {
           const { data, error } = await supabase
             .from('bets')
             .select('arb_id, book, market')
+            .eq('is_training', true)
             .in('book', [bookA, bookB])
             .range(offset, offset + PAGE - 1)
           if (error || !data) throw new Error('fetch failed')
@@ -142,22 +156,29 @@ export function CompareView() {
     return allBets.filter(b => qualifying.has(b.arb_id))
   }, [allBets, marketFilter])
 
-  // Summary stats
+  // Summary stats — P&L per book in units from training results
   const summary = useMemo(() => {
     if (!filteredBets || filteredBets.length === 0) return null
+
     const arbIds = new Set(filteredBets.map(b => b.arb_id))
-    const takenLegs = filteredBets.filter(b => b.is_taken)
-    const settledTaken = takenLegs.filter(b => b.result !== 'pending')
-    const takenArbIds = new Set(takenLegs.map(b => b.arb_id))
-    const pnl = settledTaken.length > 0
-      ? settledTaken.reduce((sum, b) => sum + (b.profit_loss ?? 0), 0)
+
+    const settledA = filteredBets.filter(b => b.book === bookA && b.result !== 'pending')
+    const settledB = filteredBets.filter(b => b.book === bookB && b.result !== 'pending')
+
+    const pnlA = settledA.length > 0
+      ? settledA.reduce((sum, b) => sum + unitPL(b.odds, b.result), 0)
       : null
+    const pnlB = settledB.length > 0
+      ? settledB.reduce((sum, b) => sum + unitPL(b.odds, b.result), 0)
+      : null
+
     const clvBets = filteredBets.filter(b => b.clv !== null)
     const avgClv = clvBets.length > 0
       ? clvBets.reduce((sum, b) => sum + b.clv!, 0) / clvBets.length
       : null
-    return { arbCount: arbIds.size, takenCount: takenArbIds.size, pnl, avgClv }
-  }, [filteredBets])
+
+    return { arbCount: arbIds.size, settledCount: Math.max(settledA.length, settledB.length), pnlA, pnlB, avgClv }
+  }, [filteredBets, bookA, bookB])
 
   const bothSelected = bookA && bookB && bookA !== bookB
 
@@ -199,9 +220,7 @@ export function CompareView() {
                 key={f}
                 onClick={() => setMarketFilter(f)}
                 className={`px-3 py-2 rounded text-xs font-medium transition-colors ${
-                  marketFilter === f
-                    ? 'bg-white/10 text-white'
-                    : 'text-zinc-500 hover:text-zinc-300'
+                  marketFilter === f ? 'bg-white/10 text-white' : 'text-zinc-500 hover:text-zinc-300'
                 }`}
               >
                 {f}
@@ -222,19 +241,25 @@ export function CompareView() {
         <div className="text-center py-20 text-zinc-500 text-sm">Loading…</div>
       ) : filteredBets && filteredBets.length === 0 ? (
         <div className="text-center py-20 text-zinc-600 text-sm">
-          No bets found for {bookA} vs {bookB}{marketFilter !== 'All' ? ` · ${marketFilter}` : ''}.
+          No training bets found for {bookA} vs {bookB}{marketFilter !== 'All' ? ` · ${marketFilter}` : ''}.
         </div>
       ) : bothSelected && summary && filteredBets ? (
         <>
           {/* Summary */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div className="flex flex-wrap gap-4">
             <StatCard label="Arbs" value={summary.arbCount.toLocaleString()} />
-            <StatCard label="Taken" value={summary.takenCount.toLocaleString()} />
-            {summary.pnl !== null && (
+            {summary.pnlA !== null && (
               <StatCard
-                label="P&L"
-                value={`${summary.pnl >= 0 ? '+$' : '-$'}${Math.abs(summary.pnl).toFixed(2)}`}
-                color={summary.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}
+                label={`${bookA} P&L`}
+                value={formatPnl(summary.pnlA)}
+                color={summary.pnlA >= 0 ? 'text-emerald-400' : 'text-red-400'}
+              />
+            )}
+            {summary.pnlB !== null && (
+              <StatCard
+                label={`${bookB} P&L`}
+                value={formatPnl(summary.pnlB)}
+                color={summary.pnlB >= 0 ? 'text-emerald-400' : 'text-red-400'}
               />
             )}
             {summary.avgClv !== null && (
