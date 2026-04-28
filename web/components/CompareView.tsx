@@ -172,12 +172,12 @@ export function CompareView() {
       ? settledB.reduce((sum, b) => sum + unitPL(b.odds, b.result), 0)
       : null
 
-    const clvBets = filteredBets.filter(b => b.clv !== null)
-    const avgClv = clvBets.length > 0
-      ? clvBets.reduce((sum, b) => sum + b.clv!, 0) / clvBets.length
-      : null
+    const clvA = filteredBets.filter(b => b.book === bookA && b.clv !== null)
+    const clvB = filteredBets.filter(b => b.book === bookB && b.clv !== null)
+    const avgClvA = clvA.length > 0 ? clvA.reduce((sum, b) => sum + b.clv!, 0) / clvA.length : null
+    const avgClvB = clvB.length > 0 ? clvB.reduce((sum, b) => sum + b.clv!, 0) / clvB.length : null
 
-    return { arbCount: arbIds.size, settledCount: Math.max(settledA.length, settledB.length), pnlA, pnlB, avgClv }
+    return { arbCount: arbIds.size, pnlA, pnlB, avgClvA, avgClvB }
   }, [filteredBets, bookA, bookB])
 
   const bothSelected = bookA && bookB && bookA !== bookB
@@ -255,6 +255,13 @@ export function CompareView() {
                 color={summary.pnlA >= 0 ? 'text-emerald-400' : 'text-red-400'}
               />
             )}
+            {summary.avgClvA !== null && (
+              <StatCard
+                label={`${bookA} Avg CLV`}
+                value={`${summary.avgClvA >= 0 ? '+' : ''}${summary.avgClvA.toFixed(2)}%`}
+                color={summary.avgClvA >= 0 ? 'text-emerald-400' : 'text-red-400'}
+              />
+            )}
             {summary.pnlB !== null && (
               <StatCard
                 label={`${bookB} P&L`}
@@ -262,11 +269,11 @@ export function CompareView() {
                 color={summary.pnlB >= 0 ? 'text-emerald-400' : 'text-red-400'}
               />
             )}
-            {summary.avgClv !== null && (
+            {summary.avgClvB !== null && (
               <StatCard
-                label="Avg CLV"
-                value={`${summary.avgClv >= 0 ? '+' : ''}${summary.avgClv.toFixed(2)}%`}
-                color={summary.avgClv >= 0 ? 'text-emerald-400' : 'text-red-400'}
+                label={`${bookB} Avg CLV`}
+                value={`${summary.avgClvB >= 0 ? '+' : ''}${summary.avgClvB.toFixed(2)}%`}
+                color={summary.avgClvB >= 0 ? 'text-emerald-400' : 'text-red-400'}
               />
             )}
           </div>
