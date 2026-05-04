@@ -94,6 +94,49 @@ function Chevron({ open }: { open: boolean }) {
   )
 }
 
+// ─── Over/Under P&L summary ───────────────────────────────────────────────────
+
+interface OUSummary {
+  overPL: number
+  overCount: number
+  underPL: number
+  underCount: number
+}
+
+function isPlayerProp(market: string | null): boolean {
+  return market != null && market.includes(' - ')
+}
+
+function OUPnlDisplay({ summary }: { summary: OUSummary | null }) {
+  if (!summary) return null
+
+  const { overPL, overCount, underPL, underCount } = summary
+
+  function fmt(n: number) {
+    const sign = n >= 0 ? '+' : ''
+    return `${sign}$${n.toFixed(2)}`
+  }
+
+  return (
+    <div className="flex gap-4 mb-4">
+      <div className="flex-1 rounded-lg border border-white/10 bg-white/[0.03] px-4 py-3">
+        <div className="text-xs text-zinc-500 uppercase tracking-wide mb-1">Overs P&L</div>
+        <div className={`text-lg font-semibold tabular-nums ${overPL >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+          {fmt(overPL)}
+        </div>
+        <div className="text-xs text-zinc-600 mt-0.5">{overCount} settled bets</div>
+      </div>
+      <div className="flex-1 rounded-lg border border-white/10 bg-white/[0.03] px-4 py-3">
+        <div className="text-xs text-zinc-500 uppercase tracking-wide mb-1">Unders P&L</div>
+        <div className={`text-lg font-semibold tabular-nums ${underPL >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+          {fmt(underPL)}
+        </div>
+        <div className="text-xs text-zinc-600 mt-0.5">{underCount} settled bets</div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 type LoadState = 'idle' | 'loading' | 'error'
@@ -102,6 +145,7 @@ type DayData = Bet[] | 'loading' | 'error'
 export function TrainingTable() {
   const [status, setStatus]     = useState<LoadState>('loading')
   const [structure, setStructure] = useState<MonthGroup[]>([])
+  const [ouSummary, setOUSummary] = useState<OUSummary | null>(null)
 
   const [openMonths, setOpenMonths] = useState<Set<string>>(new Set())
   const [openWeeks,  setOpenWeeks]  = useState<Set<string>>(new Set())
@@ -132,10 +176,43 @@ export function TrainingTable() {
       return all
     }
 
-    loadStructure()
-      .then(items => {
+    async function loadOUSummary() {
+      const PAGE = 1000
+      const all: Array<{ market: string | null; line: string | null; profit_loss: number | null; result: string | null }> = []
+      let offset = 0
+      while (true) {
+        const { data, error } = await supabase
+          .from('bets')
+          .select('market, line, profit_loss, result')
+          .eq('is_training', true)
+          .range(offset, offset + PAGE - 1)
+        if (error || !data) throw new Error('fetch failed')
+        all.push(...(data as typeof all))
+        if (data.length < PAGE) break
+        offset += PAGE
+      }
+
+      let overPL = 0, overCount = 0, underPL = 0, underCount = 0
+      for (const row of all) {
+        if (!isPlayerProp(row.market)) continue
+        if (row.result === 'pending' || row.result == null || row.profit_loss == null) continue
+        const dir = (row.line ?? '').toLowerCase()
+        if (dir.startsWith('over')) {
+          overPL += row.profit_loss
+          overCount++
+        } else if (dir.startsWith('under')) {
+          underPL += row.profit_loss
+          underCount++
+        }
+      }
+      return { overPL, overCount, underPL, underCount }
+    }
+
+    Promise.all([loadStructure(), loadOUSummary()])
+      .then(([items, summary]) => {
         if (cancelled) return
         setStructure(buildStructure(items))
+        setOUSummary(summary)
         setStatus('idle')
       })
       .catch(() => {
@@ -187,6 +264,7 @@ export function TrainingTable() {
 
   return (
     <div className="space-y-2">
+      <OUPnlDisplay summary={ouSummary} />
       {structure.map(({ monthKey, betCount: monthBetCount, weeks }) => {
         const monthOpen = openMonths.has(monthKey)
         return (
