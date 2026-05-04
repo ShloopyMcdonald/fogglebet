@@ -114,7 +114,7 @@ function OUPnlDisplay({ summary }: { summary: OUSummary | null }) {
 
   function fmt(n: number) {
     const sign = n >= 0 ? '+' : ''
-    return `${sign}$${n.toFixed(2)}`
+    return `${sign}${n.toFixed(2)}u`
   }
 
   return (
@@ -124,14 +124,14 @@ function OUPnlDisplay({ summary }: { summary: OUSummary | null }) {
         <div className={`text-lg font-semibold tabular-nums ${overPL >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
           {fmt(overPL)}
         </div>
-        <div className="text-xs text-zinc-600 mt-0.5">{overCount} settled bets</div>
+        <div className="text-xs text-zinc-600 mt-0.5">{overCount} settled bets · per $1 unit</div>
       </div>
       <div className="flex-1 rounded-lg border border-white/10 bg-white/[0.03] px-4 py-3">
         <div className="text-xs text-zinc-500 uppercase tracking-wide mb-1">Unders P&L</div>
         <div className={`text-lg font-semibold tabular-nums ${underPL >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
           {fmt(underPL)}
         </div>
-        <div className="text-xs text-zinc-600 mt-0.5">{underCount} settled bets</div>
+        <div className="text-xs text-zinc-600 mt-0.5">{underCount} settled bets · per $1 unit</div>
       </div>
     </div>
   )
@@ -178,12 +178,12 @@ export function TrainingTable() {
 
     async function loadOUSummary() {
       const PAGE = 1000
-      const all: Array<{ market: string | null; line: string | null; profit_loss: number | null; result: string | null }> = []
+      const all: Array<{ market: string | null; line: string | null; odds: number; result: string | null }> = []
       let offset = 0
       while (true) {
         const { data, error } = await supabase
           .from('bets')
-          .select('market, line, profit_loss, result')
+          .select('market, line, odds, result')
           .eq('is_training', true)
           .range(offset, offset + PAGE - 1)
         if (error || !data) throw new Error('fetch failed')
@@ -192,16 +192,24 @@ export function TrainingTable() {
         offset += PAGE
       }
 
+      // Compute P&L per $1 unit from result + odds (profit_loss only exists for taken bets)
+      function unitPL(odds: number, result: string): number {
+        if (result === 'win') return odds > 0 ? odds / 100 : 100 / Math.abs(odds)
+        if (result === 'loss') return -1
+        return 0 // push
+      }
+
       let overPL = 0, overCount = 0, underPL = 0, underCount = 0
       for (const row of all) {
         if (!isPlayerProp(row.market)) continue
-        if (row.result === 'pending' || row.result == null || row.profit_loss == null) continue
+        if (row.result === 'pending' || row.result == null) continue
         const dir = (row.line ?? '').toLowerCase()
+        const pl = unitPL(row.odds, row.result)
         if (dir.startsWith('over')) {
-          overPL += row.profit_loss
+          overPL += pl
           overCount++
         } else if (dir.startsWith('under')) {
-          underPL += row.profit_loss
+          underPL += pl
           underCount++
         }
       }
