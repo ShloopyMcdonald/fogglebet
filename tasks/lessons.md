@@ -255,3 +255,11 @@ PTO's expanded book-odds table uses MUI's `MuiTableRow-root`/`MuiTableCell-root`
 **Why:** User wants to size each bet off their own confidence estimate rather than a flat assumed edge. New flow: click "Log Bet" → pick side → pick confidence → stake picker opens prefilled with the half-Kelly amount for that edge (still capped by liquidity, still manually editable).
 
 **Note:** The web app's `halfKellyStake` in `BetTable.tsx` (used for the retroactive stake editor and the now-unreachable `TakeBetButton`) still uses the flat `ASSUMED_EDGE = 0.02` — it wasn't touched since the actual take-a-bet action lives in the extension, not the dashboard (see [[project_fogglebet]]-adjacent note above about the dashboard being tracker-only).
+
+---
+
+## A web fix isn't done until it's committed AND pushed — the user views the deployed Vercel site
+
+**Bug:** The taken-only TakenTable fix was verified working on localhost, but the user reported "both sides still showing up." Root cause: the change was never committed/pushed, so the production Vercel dashboard (the one the user actually uses) was still running old code. Local verification proved the code; it said nothing about what the user sees.
+
+**Fix/Rule:** Every web-app change must end with `git commit` + `git push` in the same task — the Vercel deploy IS the deliverable. Localhost verification alone does not count as done.
