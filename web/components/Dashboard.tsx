@@ -1,33 +1,9 @@
 'use client'
 
-import { useState } from 'react'
-import type { Bet } from '@/lib/supabase'
-import { TrainingTable } from '@/components/TrainingTable'
 import { TakenTable } from '@/components/TakenTable'
-import { StatsPanel } from '@/components/StatsPanel'
-import { CompareView } from '@/components/CompareView'
 import { deleteTodaysBets } from '@/app/actions'
 
-type Tab = 'taken' | 'training' | 'stats' | 'compare'
-
-const TABS: { label: string; value: Tab }[] = [
-  { label: 'Taken Bets', value: 'taken' },
-  { label: 'Stats', value: 'stats' },
-  { label: 'Compare', value: 'compare' },
-  { label: 'Training Data', value: 'training' },
-]
-
-export function Dashboard({ takenBets }: { takenBets: Bet[] }) {
-  const [tab, setTab] = useState<Tab>('taken')
-  const [trainingEverOpened, setTrainingEverOpened] = useState(false)
-  const [compareEverOpened, setCompareEverOpened] = useState(false)
-
-  const handleTabClick = (value: Tab) => {
-    setTab(value)
-    if (value === 'training') setTrainingEverOpened(true)
-    if (value === 'compare') setCompareEverOpened(true)
-  }
-
+export function Dashboard() {
   const handleDeleteToday = async () => {
     if (!window.confirm("Delete all bets recorded today? This can't be undone.")) return
     await deleteTodaysBets()
@@ -36,19 +12,9 @@ export function Dashboard({ takenBets }: { takenBets: Bet[] }) {
   return (
     <>
       <nav className="flex items-center gap-1 border-b border-white/5 px-6">
-        {TABS.map(({ label, value }) => (
-          <button
-            key={value}
-            onClick={() => handleTabClick(value)}
-            className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
-              tab === value
-                ? 'border-emerald-500 text-white'
-                : 'border-transparent text-zinc-500 hover:text-zinc-300'
-            }`}
-          >
-            {label}
-          </button>
-        ))}
+        <span className="px-4 py-2.5 text-sm font-medium text-white border-b-2 border-emerald-500 -mb-px">
+          Taken Bets
+        </span>
         <div className="ml-auto">
           <button
             onClick={handleDeleteToday}
@@ -60,25 +26,7 @@ export function Dashboard({ takenBets }: { takenBets: Bet[] }) {
       </nav>
 
       <main className="px-4 py-6 max-w-6xl mx-auto w-full">
-        <div className={tab === 'taken' ? '' : 'hidden'}>
-          <TakenTable />
-        </div>
-
-        <div className={tab === 'stats' ? '' : 'hidden'}>
-          <StatsPanel takenBets={takenBets} />
-        </div>
-
-        {compareEverOpened && (
-          <div className={tab === 'compare' ? '' : 'hidden'}>
-            <CompareView />
-          </div>
-        )}
-
-        {trainingEverOpened && (
-          <div className={tab === 'training' ? '' : 'hidden'}>
-            <TrainingTable />
-          </div>
-        )}
+        <TakenTable />
       </main>
     </>
   )

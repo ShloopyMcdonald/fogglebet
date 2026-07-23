@@ -430,9 +430,11 @@ console.log('[FoggleBet] content script loaded', window.location.href)
     btn.disabled = false
   }
 
-  // ─── Purpose picker modal (taken vs training) ─────────────────────────────
+  // ─── Confidence picker modal (edge for Kelly sizing) ──────────────────────
 
-  function showPurposePicker(arbData, onPurpose) {
+  const CONFIDENCE_OPTIONS = [1, 3, 5, 7, 9]
+
+  function showConfidencePicker(onConfidence) {
     const overlay = document.createElement('div')
     overlay.style.cssText = `
       position: fixed;
@@ -450,58 +452,44 @@ console.log('[FoggleBet] content script loaded', window.location.href)
       border: 1px solid #2d2d4e;
       border-radius: 8px;
       padding: 20px 24px;
-      width: 340px;
+      width: 380px;
       font-family: system-ui, sans-serif;
       color: #e5e5e5;
     `
 
     const title = document.createElement('h3')
-    title.textContent = 'How are you logging this?'
+    title.textContent = 'How confident are you?'
     title.style.cssText = 'margin: 0 0 6px; font-size: 15px; color: #fff;'
 
     const subtitle = document.createElement('p')
-    const market = arbData.market ?? ''
-    subtitle.textContent = market || (arbData.legs[0]?.bet_name?.split('—')[0]?.trim() ?? '')
+    subtitle.textContent = 'Pick the edge to use for Kelly sizing'
     subtitle.style.cssText = 'margin: 0 0 16px; font-size: 12px; color: #9ca3af;'
 
     const btnRow = document.createElement('div')
-    btnRow.style.cssText = 'display: flex; gap: 10px;'
+    btnRow.style.cssText = 'display: flex; gap: 6px;'
 
-    const choices = [
-      { label: 'Taking this bet', sub: 'Pick which side you\'re on', value: 'taken', color: '#2563eb' },
-      { label: 'Log for training', sub: 'Record both sides for the model', value: 'training', color: '#059669' },
-    ]
-
-    choices.forEach(({ label, sub, value, color }) => {
+    CONFIDENCE_OPTIONS.forEach(pct => {
       const btn = document.createElement('button')
       btn.style.cssText = `
         flex: 1;
         background: #0f172a;
         border: 1px solid #334155;
         border-radius: 6px;
-        padding: 12px 8px;
+        padding: 12px 4px;
         cursor: pointer;
         color: #e5e5e5;
         font-family: system-ui, sans-serif;
-        text-align: left;
+        font-size: 14px;
+        font-weight: 600;
+        text-align: center;
       `
+      btn.textContent = `${pct}%`
 
-      const labelEl = document.createElement('div')
-      labelEl.textContent = label
-      labelEl.style.cssText = 'font-size: 13px; font-weight: 600; margin-bottom: 4px;'
-
-      const subEl = document.createElement('div')
-      subEl.textContent = sub
-      subEl.style.cssText = 'font-size: 11px; color: #9ca3af; line-height: 1.4;'
-
-      btn.appendChild(labelEl)
-      btn.appendChild(subEl)
-
-      btn.addEventListener('mouseenter', () => { btn.style.borderColor = color })
+      btn.addEventListener('mouseenter', () => { btn.style.borderColor = '#2563eb' })
       btn.addEventListener('mouseleave', () => { btn.style.borderColor = '#334155' })
       btn.addEventListener('click', () => {
         document.body.removeChild(overlay)
-        onPurpose(value)
+        onConfidence(pct / 100)
       })
 
       btnRow.appendChild(btn)
@@ -628,9 +616,23 @@ console.log('[FoggleBet] content script loaded', window.location.href)
     document.body.appendChild(overlay)
   }
 
+  // ─── Quarter-Kelly stake sizing ────────────────────────────────────────────
+  // Edge is picked per-bet via the confidence picker. Full Kelly fraction =
+  // edge / b (b = net decimal odds); quarter-Kelly takes a quarter of that.
+  // Capped by available liquidity.
+
+  const BANKROLL = 50000
+
+  function quarterKellyStake(odds, liquidity, edge) {
+    const b = odds > 0 ? odds / 100 : 100 / Math.abs(odds)
+    const stake = (BANKROLL * edge) / (4 * b)
+    const capped = liquidity != null ? Math.min(stake, liquidity) : stake
+    return Math.max(1, Math.round(capped))
+  }
+
   // ─── Stake picker modal ───────────────────────────────────────────────────
 
-  function showStakePicker(leg, defaultStake, onConfirm) {
+  function showStakePicker(leg, defaultStake, maxStake, onConfirm) {
     const overlay = document.createElement('div')
     overlay.style.cssText = `
       position: fixed;
@@ -671,7 +673,7 @@ console.log('[FoggleBet] content script loaded', window.location.href)
     const input = document.createElement('input')
     input.type = 'number'
     input.min = '1'
-    input.max = '100'
+    if (maxStake != null) input.max = String(maxStake)
     input.value = String(defaultStake)
     input.style.cssText = `
       flex: 1;
@@ -710,7 +712,8 @@ console.log('[FoggleBet] content script loaded', window.location.href)
 
     const submit = () => {
       const raw = parseFloat(input.value)
-      const stake = isNaN(raw) || raw <= 0 ? 100 : Math.min(raw, 100)
+      let stake = isNaN(raw) || raw <= 0 ? defaultStake : raw
+      if (maxStake != null) stake = Math.min(stake, maxStake)
       document.body.removeChild(overlay)
       onConfirm(stake)
     }
@@ -892,20 +895,16 @@ console.log('[FoggleBet] content script loaded', window.location.href)
       }
     })
 
-    // Step 1: ask taken vs training
-    showPurposePicker(arbData, (purpose) => {
-      if (purpose === 'training') {
-        postBets(btn, arbData, /* takenIndex */ null, /* isTraining */ true)
-      } else {
-        // Step 2: pick which side, then confirm stake for that side
-        showSidePicker(arbData, (takenIndex) => {
-          const takenLeg = arbData.legs[takenIndex]
-          const defaultStake = takenLeg.liquidity ? Math.min(takenLeg.liquidity, 100) : 100
-          showStakePicker(takenLeg, defaultStake, (stake) => {
-            postBets(btn, arbData, takenIndex, /* isTraining */ true, stake)
-          })
+    // Step 1: pick which side you're taking
+    showSidePicker(arbData, (takenIndex) => {
+      const takenLeg = arbData.legs[takenIndex]
+      // Step 2: pick confidence (edge), then confirm stake for that side
+      showConfidencePicker((edge) => {
+        const defaultStake = quarterKellyStake(takenLeg.odds, takenLeg.liquidity, edge)
+        showStakePicker(takenLeg, defaultStake, takenLeg.liquidity, (stake) => {
+          postBets(btn, arbData, takenIndex, /* isTraining */ true, stake)
         })
-      }
+      })
     })
   }
 

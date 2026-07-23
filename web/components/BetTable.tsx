@@ -161,16 +161,20 @@ function BookOddsTable({ bookOdds }: { bookOdds: BookOdds }) {
   )
 }
 
-// Books where we take all available liquidity with no dollar cap
-const UNCAPPED_BOOKS = new Set(['NoVig', 'Kalshi', 'Polymarket (US)', 'ProphetX'])
+// Quarter-Kelly stake sizing, assuming a flat 2% EV on every bet.
+// Full Kelly fraction = edge / b (b = net decimal odds); quarter-Kelly takes a quarter of that.
+const BANKROLL = 50_000
+const ASSUMED_EDGE = 0.02
 
-function defaultStake(book: string, liquidity: number | null): number {
-  if (UNCAPPED_BOOKS.has(book)) return liquidity ?? 0
-  return Math.min(liquidity ?? 250, 250)
+function quarterKellyStake(odds: number, liquidity: number | null): number {
+  const b = odds > 0 ? odds / 100 : 100 / Math.abs(odds)
+  const stake = (BANKROLL * ASSUMED_EDGE) / (4 * b)
+  const capped = liquidity != null ? Math.min(stake, liquidity) : stake
+  return Math.max(1, Math.round(capped))
 }
 
-function StakeEditor({ betId, stake, book }: { betId: string; stake: number | null; book: string }) {
-  const initial = stake ?? defaultStake(book, null)
+function StakeEditor({ betId, stake, odds, liquidity }: { betId: string; stake: number | null; odds: number; liquidity: number | null }) {
+  const initial = stake ?? quarterKellyStake(odds, liquidity)
   const [editing, setEditing] = useState(false)
   const [value, setValue] = useState(String(initial))
   const [saved, setSaved] = useState(initial)
@@ -183,7 +187,7 @@ function StakeEditor({ betId, stake, book }: { betId: string; stake: number | nu
       setEditing(false)
       return
     }
-    const capped = UNCAPPED_BOOKS.has(book) ? n : Math.min(n, 250)
+    const capped = liquidity != null ? Math.min(n, liquidity) : n
     setSaved(capped)
     setValue(String(capped))
     setEditing(false)
@@ -221,7 +225,7 @@ function StakeEditor({ betId, stake, book }: { betId: string; stake: number | nu
 function TakeBetButton({ bet }: { bet: Bet }) {
   type Mode = 'idle' | 'input' | 'loading' | 'done' | 'error'
   const [mode, setMode] = useState<Mode>('idle')
-  const [stake, setStake] = useState(String(defaultStake(bet.book, bet.liquidity)))
+  const [stake, setStake] = useState(String(quarterKellyStake(bet.odds, bet.liquidity)))
 
   if (mode === 'done') return <span className="text-emerald-400">Taken ✓</span>
   if (mode === 'error') return <span className="text-red-400">Failed — try again</span>
@@ -241,7 +245,7 @@ function TakeBetButton({ bet }: { bet: Bet }) {
     const n = parseFloat(stake)
     if (isNaN(n) || n <= 0) return
     setMode('loading')
-    const capped = UNCAPPED_BOOKS.has(bet.book) ? n : Math.min(n, 250)
+    const capped = bet.liquidity != null ? Math.min(n, bet.liquidity) : n
     try {
       await takeTrainingBet(bet.id, capped)
       setMode('done')
@@ -353,7 +357,7 @@ export function BetTable({ bets }: { bets: Bet[] }) {
 
               <TakenBadge is_taken={bet.is_taken} />
               {bet.is_taken && (
-                <StakeEditor betId={bet.id} stake={bet.stake} book={bet.book} />
+                <StakeEditor betId={bet.id} stake={bet.stake} odds={bet.odds} liquidity={bet.liquidity} />
               )}
               <ResultBadge result={bet.result} />
 

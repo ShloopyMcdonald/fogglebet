@@ -181,27 +181,15 @@ export function TakenTable() {
     if (isOpening && !dayData.has(dayKey)) {
       setDayData(prev => new Map(prev).set(dayKey, 'loading'))
 
-      // Fetch taken-leg arb_ids for this day, then fetch all legs of those arbs
       supabase
         .from('bets')
-        .select('arb_id')
+        .select('*')
         .eq('is_taken', true)
         .gte('recorded_at', dayKey + 'T00:00:00.000Z')
         .lte('recorded_at', dayKey + 'T23:59:59.999Z')
-        .then(({ data: taken, error: e1 }) => {
-          if (e1 || !taken || taken.length === 0) {
-            setDayData(prev => new Map(prev).set(dayKey, e1 ? 'error' : []))
-            return
-          }
-          const arbIds = [...new Set(taken.map((r: { arb_id: string }) => r.arb_id))]
-          supabase
-            .from('bets')
-            .select('*')
-            .in('arb_id', arbIds)
-            .order('recorded_at', { ascending: false })
-            .then(({ data, error: e2 }) => {
-              setDayData(prev => new Map(prev).set(dayKey, e2 || !data ? 'error' : data as Bet[]))
-            })
+        .order('recorded_at', { ascending: false })
+        .then(({ data, error }) => {
+          setDayData(prev => new Map(prev).set(dayKey, error || !data ? 'error' : data as Bet[]))
         })
     }
   }

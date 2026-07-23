@@ -225,3 +225,33 @@ PTO's expanded book-odds table uses MUI's `MuiTableRow-root`/`MuiTableCell-root`
 **Impact:** Cannot debug last night's cron failures via Vercel logs. Must use local dev server or Supabase DB state to infer cron behavior.
 
 **Workaround:** For debugging a specific cron run, temporarily set a bet's game_time to be in the current window, then observe the DB state change immediately after (the Vercel cron fires within 1 minute of the game_time entering the window).
+
+---
+
+## FoggleBet web app is purely a tracker — "taking a bet" happens in the extension, not the dashboard
+
+**Correction:** Initially assumed "turn it into a paper trading platform using the taking this bet feature" meant surfacing `TakeBetButton` (in `BetTable.tsx`, only rendered on Training Data rows) more prominently in the web dashboard. User clarified: the take-action already lives in the **extension's** purpose-picker overlay on picktheodds ("Taking this bet" choice in `showPurposePicker`, `extension/content/index.js`). The web dashboard's job is only to display recorded bets — never to be the place you decide to take one.
+
+**Fix:** Hid Stats, Compare, and Training Data tabs from `Dashboard.tsx`, leaving only "Taken Bets" — the paper-trading portfolio view. No extension changes were needed since the take-a-bet flow already existed there.
+
+---
+
+## Stake sizing switched from flat $ caps to half-Kelly with an assumed flat 3% edge
+
+**Decision:** Replaced the old per-book stake defaults (`$250` cap on most books / full liquidity on NoVig, Kalshi, Polymarket (US), ProphetX; `$100` cap in the extension) with half-Kelly sizing, assuming every bet has a flat 3% EV. `$50,000` bankroll.
+
+**Formula:** For American odds, net decimal odds `b = odds > 0 ? odds/100 : 100/|odds|`. Since assumed EV is flat, full Kelly fraction simplifies to `edge / b` (no need to separately solve for win probability — it cancels out: `f* = (b·p − q)/b = (p·D − 1)/b = EV/b`). Half-Kelly stake `= bankroll × edge / (2b)`. Final stake is capped at available liquidity when liquidity is known (`Math.min(stake, liquidity)`), otherwise uncapped.
+
+**Why:** User wants a flat, principled bet-sizing rule instead of book-specific caps. Implemented identically in `web/components/BetTable.tsx` (`halfKellyStake`) and `extension/content/index.js` (`halfKellyStake`) — duplicated rather than shared since the extension is vanilla JS and the web app is a separate TS package.
+
+**Note:** Because the formula is `edge/b`, heavy favorites (small `b`) get much larger stakes than underdogs for the same assumed edge — e.g. -150 → $1,125, +150 → $500 on a $50k bankroll. This is mathematically correct Kelly behavior, not a bug — favorites have lower variance per dollar risked.
+
+---
+
+## Extension: dropped the taken-vs-training purpose picker; edge is now user-selected per bet
+
+**Decision:** Removed `showPurposePicker` ("Taking this bet" / "Log for training") entirely — every logged bet is now a taken (paper) bet, so the choice was pointless. Added `showConfidencePicker` (1%/3%/5%/7%/9% buttons) between the side picker and stake picker; the selected value feeds `halfKellyStake(odds, liquidity, edge)` as the per-bet edge instead of a hardcoded constant.
+
+**Why:** User wants to size each bet off their own confidence estimate rather than a flat assumed edge. New flow: click "Log Bet" → pick side → pick confidence → stake picker opens prefilled with the half-Kelly amount for that edge (still capped by liquidity, still manually editable).
+
+**Note:** The web app's `halfKellyStake` in `BetTable.tsx` (used for the retroactive stake editor and the now-unreachable `TakeBetButton`) still uses the flat `ASSUMED_EDGE = 0.02` — it wasn't touched since the actual take-a-bet action lives in the extension, not the dashboard (see [[project_fogglebet]]-adjacent note above about the dashboard being tracker-only).
