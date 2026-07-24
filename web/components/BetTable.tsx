@@ -61,17 +61,70 @@ function formatGameTime(ts: string | null): string {
   })
 }
 
+const RESULT_STYLES: Record<Bet['result'], string> = {
+  pending: 'bg-zinc-800 text-zinc-400',
+  win: 'bg-emerald-900/60 text-emerald-400',
+  loss: 'bg-red-900/60 text-red-400',
+  push: 'bg-yellow-900/60 text-yellow-400',
+}
+
 function ResultBadge({ result }: { result: Bet['result'] }) {
-  const styles: Record<Bet['result'], string> = {
-    pending: 'bg-zinc-800 text-zinc-400',
-    win: 'bg-emerald-900/60 text-emerald-400',
-    loss: 'bg-red-900/60 text-red-400',
-    push: 'bg-yellow-900/60 text-yellow-400',
-  }
   return (
-    <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${styles[result]}`}>
+    <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${RESULT_STYLES[result]}`}>
       {result}
     </span>
+  )
+}
+
+// Mirrors calcProfitLoss in web/lib/espn.ts so manual results settle identically to cron results.
+function manualProfitLoss(result: Bet['result'], odds: number, stake: number | null): number | null {
+  if (result === 'pending' || stake == null) return null
+  if (result === 'win') return odds > 0 ? stake * (odds / 100) : stake * (100 / Math.abs(odds))
+  if (result === 'loss') return -stake
+  return 0 // push
+}
+
+// Clickable result badge — lets the user manually settle bets that no API covers.
+function ResultEditor({ bet }: { bet: Bet }) {
+  const [editing, setEditing] = useState(false)
+  const [result, setResult] = useState<Bet['result']>(bet.result)
+
+  const pick = async (r: Bet['result']) => {
+    setEditing(false)
+    if (r === result) return
+    const prev = result
+    setResult(r)
+    const profit_loss = bet.is_taken ? manualProfitLoss(r, bet.odds, bet.stake) : null
+    const { error } = await supabase.from('bets').update({ result: r, profit_loss }).eq('id', bet.id)
+    if (error) setResult(prev)
+  }
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
+        {(['pending', 'win', 'loss', 'push'] as const).map(r => (
+          <button
+            key={r}
+            onClick={() => pick(r)}
+            className={`px-2 py-0.5 rounded text-xs font-medium transition-opacity ${RESULT_STYLES[r]} ${
+              r === result ? 'ring-1 ring-white/40' : 'opacity-60 hover:opacity-100'
+            }`}
+          >
+            {r}
+          </button>
+        ))}
+      </div>
+    )
+  }
+
+  return (
+    <button
+      onClick={e => { e.stopPropagation(); setEditing(true) }}
+      className="shrink-0 cursor-pointer hover:brightness-125 transition-[filter]"
+      title="Click to set result manually"
+    >
+      <ResultBadge result={result} />
+    </button>
   )
 }
 
@@ -359,7 +412,7 @@ export function BetTable({ bets }: { bets: Bet[] }) {
               {bet.is_taken && (
                 <StakeEditor betId={bet.id} stake={bet.stake} odds={bet.odds} liquidity={bet.liquidity} />
               )}
-              <ResultBadge result={bet.result} />
+              <ResultEditor bet={bet} />
 
               <span className="text-zinc-500 hover:text-emerald-600/80 transition-colors shrink-0">
                 <ChevronIcon open={isOpen} />
