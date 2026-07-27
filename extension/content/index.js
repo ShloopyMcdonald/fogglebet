@@ -1058,8 +1058,9 @@ console.log(
 
   // Warn once per row per reason so the 500ms loop doesn't spam the console
   function hintWarnOnce(row, reason) {
-    if (row.dataset.fbHintWarned === reason) return
-    row.dataset.fbHintWarned = reason
+    const seen = row.dataset.fbHintWarned ?? ''
+    if (seen.includes(reason)) return
+    row.dataset.fbHintWarned = `${seen}|${reason}`
     console.warn('[FoggleBet] Kelly hints skipped:', reason)
   }
 
@@ -1080,21 +1081,47 @@ console.log(
 
     if (getComputedStyle(row).position === 'static') row.style.position = 'relative'
 
-    // Compact odds live in body3 spans outside the leg containers
+    // Primary odds source: body3 spans outside the leg containers (compact rows)
     const compactOddsSpans = Array.from(row.querySelectorAll('span.MuiTypography-body3'))
       .filter(s => /^[+-]?\d+$/.test(s.textContent?.trim() ?? ''))
       .filter(s => !legs.some(leg => leg.contains(s)))
-    if (compactOddsSpans.length < 2) {
-      hintWarnOnce(row, `compact odds spans not found (${compactOddsSpans.length})`)
+
+    // Fallback (expanded card views where odds aren't body3 spans): find the
+    // signed-odds text (+120 / -119) whose vertical center lines up with the
+    // leg box — layout-anchored, so it survives PTO class-name changes.
+    function geometricLegOdds(leg) {
+      const r = leg.getBoundingClientRect()
+      let best = null
+      let bestDist = Infinity
+      for (const el of row.querySelectorAll('span, p, div')) {
+        if (el.childElementCount !== 0) continue
+        if (el.classList.contains('fb-kelly-hint')) continue
+        const text = el.textContent?.trim() ?? ''
+        if (!/^[+-]\d{2,4}$/.test(text)) continue
+        const c = el.getBoundingClientRect()
+        if (c.width === 0) continue
+        const mid = (c.top + c.bottom) / 2
+        if (mid < r.top || mid > r.bottom) continue
+        const dist = Math.abs(c.left - r.right)
+        if (dist < bestDist) {
+          bestDist = dist
+          best = text
+        }
+      }
+      return best ? parseInt(best.replace('+', ''), 10) : NaN
     }
 
     const rowRect = row.getBoundingClientRect()
     if (rowRect.width === 0) return
 
     for (let i = 0; i < legs.length; i++) {
-      const span = compactOddsSpans[i]
-      const odds = span ? parseInt((span.textContent?.trim() ?? '').replace('+', ''), 10) : NaN
-      if (isNaN(odds) || odds === 0) continue
+      const span = compactOddsSpans.length >= 2 ? compactOddsSpans[i] : null
+      let odds = span ? parseInt((span.textContent?.trim() ?? '').replace('+', ''), 10) : NaN
+      if (isNaN(odds)) odds = geometricLegOdds(legs[i])
+      if (isNaN(odds) || odds === 0) {
+        hintWarnOnce(row, `no odds found for leg ${i} (body3 spans: ${compactOddsSpans.length})`)
+        continue
+      }
 
       const legRect = legs[i].getBoundingClientRect()
       if (legRect.width === 0) continue
