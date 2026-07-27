@@ -258,6 +258,16 @@ PTO's expanded book-odds table uses MUI's `MuiTableRow-root`/`MuiTableCell-root`
 
 ---
 
+## Kelly hint overlays: anchor absolutely in the row, not inside PTO's leg containers
+
+**Correction:** First version appended hint divs *inside* each leg container (under the team name). User wanted them in the open gap **to the left of** the two side boxes in the expanded row. Appending children inside PTO's MUI flex containers also risks disturbing their layout.
+
+**Pattern that works:** Make the row `position: relative` (the Log Bet button already relies on this), append overlay elements to the **row**, and place them with `getBoundingClientRect()` math relative to the leg boxes (`right = rowRect.right - legRect.left + gap`, vertically centered on the leg). Recompute position every 500ms injection tick (PTO layout shifts as odds update); re-render text only when a `odds|bankroll|fraction` key changes. `pointer-events: none` keeps overlays from intercepting clicks.
+
+**Testing without PTO login:** a local fixture page (fake row with `MuiTypography-navHeader`, two `div[aria-label]` book divs, `body3` odds spans, >2 `oddsRobotoMono` spans for isRowExpanded) plus a `chrome.storage` shim whose `set()` fires `onChanged` listeners lets the whole content script run in the preview browser end-to-end.
+
+---
+
 ## A web fix isn't done until it's committed AND pushed — the user views the deployed Vercel site
 
 **Bug:** The taken-only TakenTable fix was verified working on localhost, but the user reported "both sides still showing up." Root cause: the change was never committed/pushed, so the production Vercel dashboard (the one the user actually uses) was still running old code. Local verification proved the code; it said nothing about what the user sees.
