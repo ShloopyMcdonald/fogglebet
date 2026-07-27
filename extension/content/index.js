@@ -6,6 +6,50 @@ console.log('[FoggleBet] content script loaded', window.location.href)
 ;(function () {
   'use strict'
 
+  // ─── Kelly settings (bankroll + fraction) ──────────────────────────────────
+  // Editable from the on-page panel (bottom-right of the odds screen) and the
+  // extension popup. Persisted in chrome.storage.local.
+
+  const DEFAULT_BANKROLL = 50000
+  const DEFAULT_KELLY_FRACTION = 0.25
+  let bankroll = DEFAULT_BANKROLL
+  let kellyFraction = DEFAULT_KELLY_FRACTION
+
+  const FRACTION_LABELS = { '1': '1K', '0.5': '½K', '0.25': '¼K', '0.125': '⅛K' }
+
+  function fractionLabel() {
+    return FRACTION_LABELS[String(kellyFraction)] ?? `${kellyFraction}×K`
+  }
+
+  function applySettings(changes) {
+    let touched = false
+    if (typeof changes.bankroll === 'number' && changes.bankroll > 0) {
+      bankroll = changes.bankroll
+      touched = true
+    }
+    if (typeof changes.kellyFraction === 'number' && changes.kellyFraction > 0 && changes.kellyFraction <= 1) {
+      kellyFraction = changes.kellyFraction
+      touched = true
+    }
+    if (touched) {
+      // Remove existing hints — the injection loop re-renders with new settings
+      document.querySelectorAll('.fb-kelly-hint').forEach(el => el.remove())
+      updateSettingsPill()
+    }
+  }
+
+  chrome.storage.local.get(['bankroll', 'kellyFraction'], (stored) => {
+    applySettings({ bankroll: stored.bankroll, kellyFraction: stored.kellyFraction })
+  })
+
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local') return
+    applySettings({
+      bankroll: changes.bankroll?.newValue,
+      kellyFraction: changes.kellyFraction?.newValue,
+    })
+  })
+
   // ─── Scraping helpers ──────────────────────────────────────────────────────
 
   function scrapeRow(row) {
@@ -616,16 +660,14 @@ console.log('[FoggleBet] content script loaded', window.location.href)
     document.body.appendChild(overlay)
   }
 
-  // ─── Quarter-Kelly stake sizing ────────────────────────────────────────────
-  // Edge is picked per-bet via the confidence picker. Full Kelly fraction =
-  // edge / b (b = net decimal odds); quarter-Kelly takes a quarter of that.
-  // Capped by available liquidity.
+  // ─── Kelly stake sizing ────────────────────────────────────────────────────
+  // Edge is picked per-bet via the confidence picker (or shown per-edge in the
+  // hints). Full Kelly fraction = edge / b (b = net decimal odds); the user's
+  // configured fraction (default quarter) scales it down. Capped by liquidity.
 
-  const BANKROLL = 50000
-
-  function quarterKellyStake(odds, liquidity, edge) {
+  function kellyStake(odds, liquidity, edge) {
     const b = odds > 0 ? odds / 100 : 100 / Math.abs(odds)
-    const stake = (BANKROLL * edge) / (4 * b)
+    const stake = (bankroll * edge * kellyFraction) / b
     const capped = liquidity != null ? Math.min(stake, liquidity) : stake
     return Math.max(1, Math.round(capped))
   }
@@ -900,7 +942,7 @@ console.log('[FoggleBet] content script loaded', window.location.href)
       const takenLeg = arbData.legs[takenIndex]
       // Step 2: pick confidence (edge), then confirm stake for that side
       showConfidencePicker((edge) => {
-        const defaultStake = quarterKellyStake(takenLeg.odds, takenLeg.liquidity, edge)
+        const defaultStake = kellyStake(takenLeg.odds, takenLeg.liquidity, edge)
         showStakePicker(takenLeg, defaultStake, takenLeg.liquidity, (stake) => {
           postBets(btn, arbData, takenIndex, /* isTraining */ true, stake)
         })
@@ -989,12 +1031,245 @@ console.log('[FoggleBet] content script loaded', window.location.href)
     return rows
   }
 
+  // ─── Kelly stake hints (per leg) ───────────────────────────────────────────
+  // Small muted line inside each leg container showing the quarter-Kelly stake
+  // at 1/2/3/5/7/9% edge for that leg's current compact odds. Re-rendered by the
+  // injection loop when odds or bankroll change.
+
+  const HINT_EDGES = [0.01, 0.02, 0.03, 0.05, 0.07, 0.09]
+
+  function fmtStake(n) {
+    return n >= 1000 ? `$${(n / 1000).toFixed(1)}k` : `$${n}`
+  }
+
+  function kellyHintText(odds) {
+    const parts = HINT_EDGES.map(
+      e => `${Math.round(e * 100)}% ${fmtStake(kellyStake(odds, null, e))}`
+    )
+    return `${fractionLabel()}  ${parts.join(' · ')}`
+  }
+
+  function injectKellyHints(row) {
+    // Same leg detection as scrapeRow (book-name divs → 2 levels up)
+    const bookDivs = Array.from(row.querySelectorAll('div[aria-label]'))
+      .filter(el => (el.getAttribute('aria-label') ?? '').length > 0)
+      .filter(el => !/[+-]\d/.test(el.getAttribute('aria-label') ?? ''))
+      .filter(el => !el.closest('table'))
+      .slice(0, 2)
+    const legs = bookDivs
+      .map(div => div.parentElement?.parentElement ?? null)
+      .filter(Boolean)
+    if (legs.length < 2 || legs[0] === legs[1]) return
+
+    // Compact odds live in body3 spans outside the leg containers
+    const compactOddsSpans = Array.from(row.querySelectorAll('span.MuiTypography-body3'))
+      .filter(s => /^[+-]?\d+$/.test(s.textContent?.trim() ?? ''))
+      .filter(s => !legs.some(leg => leg.contains(s)))
+
+    for (let i = 0; i < legs.length; i++) {
+      const span = compactOddsSpans[i]
+      const odds = span ? parseInt((span.textContent?.trim() ?? '').replace('+', ''), 10) : NaN
+      if (isNaN(odds) || odds === 0) continue
+
+      const key = `${odds}|${bankroll}|${kellyFraction}`
+      let hint = legs[i].querySelector(':scope .fb-kelly-hint')
+      if (hint && hint.dataset.fbKey === key) continue
+
+      if (!hint) {
+        hint = document.createElement('div')
+        hint.className = 'fb-kelly-hint'
+        hint.style.cssText = `
+          font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+          font-size: 9.5px;
+          line-height: 1.3;
+          color: #8b93a7;
+          opacity: 0.85;
+          margin-top: 2px;
+          white-space: nowrap;
+          pointer-events: none;
+        `
+        legs[i].appendChild(hint)
+      }
+      hint.dataset.fbKey = key
+      hint.textContent = kellyHintText(odds)
+    }
+  }
+
+  // ─── On-page Kelly settings panel (bottom-right pill) ─────────────────────
+
+  function fmtBankroll(n) {
+    return n >= 1000 ? `$${(n / 1000).toFixed(n % 1000 === 0 ? 0 : 1)}k` : `$${n}`
+  }
+
+  function updateSettingsPill() {
+    const pill = document.getElementById('fb-kelly-pill')
+    if (pill) pill.textContent = `${fmtBankroll(bankroll)} · ${fractionLabel()}`
+  }
+
+  function injectSettingsPanel() {
+    if (document.getElementById('fb-kelly-panel')) return
+
+    const panel = document.createElement('div')
+    panel.id = 'fb-kelly-panel'
+    panel.style.cssText = `
+      position: fixed;
+      bottom: 16px;
+      right: 16px;
+      z-index: 99997;
+      font-family: system-ui, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 6px;
+    `
+
+    // Expanded editor (hidden until pill is clicked)
+    const editor = document.createElement('div')
+    editor.style.cssText = `
+      display: none;
+      background: #1a1a2e;
+      border: 1px solid #2d2d4e;
+      border-radius: 8px;
+      padding: 10px 12px;
+      width: 190px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+    `
+
+    const brLabel = document.createElement('div')
+    brLabel.textContent = 'Bankroll ($)'
+    brLabel.style.cssText = 'font-size: 10px; color: #9ca3af; margin-bottom: 3px;'
+
+    const brInput = document.createElement('input')
+    brInput.type = 'number'
+    brInput.min = '1'
+    brInput.step = '100'
+    brInput.style.cssText = `
+      width: 100%;
+      box-sizing: border-box;
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 4px;
+      color: #fff;
+      padding: 4px 8px;
+      font-size: 13px;
+      margin-bottom: 8px;
+      outline: none;
+    `
+
+    const frLabel = document.createElement('div')
+    frLabel.textContent = 'Kelly fraction'
+    frLabel.style.cssText = 'font-size: 10px; color: #9ca3af; margin-bottom: 3px;'
+
+    const frRow = document.createElement('div')
+    frRow.style.cssText = 'display: flex; gap: 4px;'
+
+    const fractions = [
+      { label: '1', value: 1 },
+      { label: '½', value: 0.5 },
+      { label: '¼', value: 0.25 },
+      { label: '⅛', value: 0.125 },
+    ]
+    const frBtns = []
+
+    function highlightFraction(selected) {
+      for (const { btn, value } of frBtns) {
+        btn.style.borderColor = value === selected ? '#2563eb' : '#334155'
+        btn.style.background = value === selected ? '#12244d' : '#0f172a'
+      }
+    }
+
+    let pendingFraction = kellyFraction
+
+    for (const { label, value } of fractions) {
+      const btn = document.createElement('button')
+      btn.textContent = label
+      btn.style.cssText = `
+        flex: 1;
+        background: #0f172a;
+        border: 1px solid #334155;
+        border-radius: 4px;
+        color: #e5e5e5;
+        padding: 4px 0;
+        font-size: 13px;
+        cursor: pointer;
+      `
+      btn.addEventListener('click', () => {
+        pendingFraction = value
+        highlightFraction(value)
+      })
+      frRow.appendChild(btn)
+      frBtns.push({ btn, value })
+    }
+
+    const applyBtn = document.createElement('button')
+    applyBtn.textContent = 'Apply'
+    applyBtn.style.cssText = `
+      width: 100%;
+      margin-top: 8px;
+      background: #2563eb;
+      border: none;
+      border-radius: 4px;
+      color: #fff;
+      padding: 5px 0;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    `
+    applyBtn.addEventListener('click', () => {
+      const br = parseFloat(brInput.value)
+      const settings = { kellyFraction: pendingFraction }
+      if (!isNaN(br) && br > 0) settings.bankroll = br
+      // storage.onChanged fires applySettings, which refreshes hints + pill
+      chrome.storage.local.set(settings)
+      editor.style.display = 'none'
+    })
+
+    editor.appendChild(brLabel)
+    editor.appendChild(brInput)
+    editor.appendChild(frLabel)
+    editor.appendChild(frRow)
+    editor.appendChild(applyBtn)
+
+    // Collapsed pill
+    const pill = document.createElement('button')
+    pill.id = 'fb-kelly-pill'
+    pill.style.cssText = `
+      background: #1a1a2e;
+      border: 1px solid #2d2d4e;
+      border-radius: 999px;
+      color: #cbd5e1;
+      padding: 5px 12px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+    `
+    pill.title = 'FoggleBet — bankroll & Kelly fraction'
+    pill.addEventListener('click', () => {
+      const opening = editor.style.display === 'none'
+      if (opening) {
+        brInput.value = String(bankroll)
+        pendingFraction = kellyFraction
+        highlightFraction(kellyFraction)
+      }
+      editor.style.display = opening ? 'block' : 'none'
+    })
+
+    panel.appendChild(editor)
+    panel.appendChild(pill)
+    document.body.appendChild(panel)
+    updateSettingsPill()
+  }
+
   // ─── Row injection + MutationObserver ─────────────────────────────────────
 
   function injectAllRows() {
+    injectSettingsPanel()
     for (const row of findArbRows()) {
       if (isRowExpanded(row)) {
         injectButton(row)
+        injectKellyHints(row)
       }
     }
   }

@@ -44,6 +44,8 @@
   <input type="password" id="apiKey" placeholder="Enter your API key" />
   <label for="apiUrl">API URL</label>
   <input type="text" id="apiUrl" placeholder="https://your-app.vercel.app" />
+  <label for="bankroll">Bankroll ($) — used for Kelly stake hints</label>
+  <input type="number" id="bankroll" min="1" step="100" placeholder="50000" />
   <button id="save">Save</button>
   <div id="status"></div>
   <script src="popup.js"></script>
