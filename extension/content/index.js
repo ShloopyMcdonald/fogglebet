@@ -1042,11 +1042,15 @@ console.log('[FoggleBet] content script loaded', window.location.href)
     return n >= 1000 ? `$${(n / 1000).toFixed(1)}k` : `$${n}`
   }
 
-  function kellyHintText(odds) {
+  // Two compact lines: "¼K 1% $190 · 2% $380 · 3% $570" / "5% $950 · 7% $1.3k · 9% $1.7k"
+  function kellyHintLines(odds) {
     const parts = HINT_EDGES.map(
       e => `${Math.round(e * 100)}% ${fmtStake(kellyStake(odds, null, e))}`
     )
-    return `${fractionLabel()}  ${parts.join(' · ')}`
+    return [
+      `${fractionLabel()}  ${parts.slice(0, 3).join(' · ')}`,
+      parts.slice(3).join(' · '),
+    ]
   }
 
   function injectKellyHints(row) {
@@ -1061,37 +1065,60 @@ console.log('[FoggleBet] content script loaded', window.location.href)
       .filter(Boolean)
     if (legs.length < 2 || legs[0] === legs[1]) return
 
+    if (getComputedStyle(row).position === 'static') row.style.position = 'relative'
+
     // Compact odds live in body3 spans outside the leg containers
     const compactOddsSpans = Array.from(row.querySelectorAll('span.MuiTypography-body3'))
       .filter(s => /^[+-]?\d+$/.test(s.textContent?.trim() ?? ''))
       .filter(s => !legs.some(leg => leg.contains(s)))
+
+    const rowRect = row.getBoundingClientRect()
+    if (rowRect.width === 0) return
 
     for (let i = 0; i < legs.length; i++) {
       const span = compactOddsSpans[i]
       const odds = span ? parseInt((span.textContent?.trim() ?? '').replace('+', ''), 10) : NaN
       if (isNaN(odds) || odds === 0) continue
 
-      const key = `${odds}|${bankroll}|${kellyFraction}`
-      let hint = legs[i].querySelector(':scope .fb-kelly-hint')
-      if (hint && hint.dataset.fbKey === key) continue
+      const legRect = legs[i].getBoundingClientRect()
+      if (legRect.width === 0) continue
 
+      let hint = row.querySelector(`:scope > .fb-kelly-hint[data-fb-leg="${i}"]`)
       if (!hint) {
         hint = document.createElement('div')
         hint.className = 'fb-kelly-hint'
+        hint.dataset.fbLeg = String(i)
         hint.style.cssText = `
+          position: absolute;
+          z-index: 99996;
           font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-          font-size: 9.5px;
-          line-height: 1.3;
+          font-size: 10px;
+          line-height: 1.45;
           color: #8b93a7;
-          opacity: 0.85;
-          margin-top: 2px;
+          opacity: 0.9;
           white-space: nowrap;
+          text-align: right;
           pointer-events: none;
         `
-        legs[i].appendChild(hint)
+        row.appendChild(hint)
       }
-      hint.dataset.fbKey = key
-      hint.textContent = kellyHintText(odds)
+
+      // Anchor the hint's right edge just left of the leg box, vertically centered
+      // on it. Recomputed every tick — PTO's layout shifts as odds update.
+      hint.style.top = `${legRect.top - rowRect.top + legRect.height / 2}px`
+      hint.style.right = `${rowRect.right - legRect.left + 12}px`
+      hint.style.transform = 'translateY(-50%)'
+
+      const key = `${odds}|${bankroll}|${kellyFraction}`
+      if (hint.dataset.fbKey !== key) {
+        hint.dataset.fbKey = key
+        hint.textContent = ''
+        for (const line of kellyHintLines(odds)) {
+          const div = document.createElement('div')
+          div.textContent = line
+          hint.appendChild(div)
+        }
+      }
     }
   }
 
