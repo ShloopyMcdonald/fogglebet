@@ -1,7 +1,10 @@
 // FoggleBet content script — picktheodds.app overlay
 // Injects "Log Bet" buttons on expanded [rowtype="ARBITRAGE"] rows only
 
-console.log('[FoggleBet] content script loaded', window.location.href)
+console.log(
+  `[FoggleBet] content script v${chrome.runtime.getManifest().version} loaded`,
+  window.location.href
+)
 
 ;(function () {
   'use strict'
@@ -1053,6 +1056,13 @@ console.log('[FoggleBet] content script loaded', window.location.href)
     ]
   }
 
+  // Warn once per row per reason so the 500ms loop doesn't spam the console
+  function hintWarnOnce(row, reason) {
+    if (row.dataset.fbHintWarned === reason) return
+    row.dataset.fbHintWarned = reason
+    console.warn('[FoggleBet] Kelly hints skipped:', reason)
+  }
+
   function injectKellyHints(row) {
     // Same leg detection as scrapeRow (book-name divs → 2 levels up)
     const bookDivs = Array.from(row.querySelectorAll('div[aria-label]'))
@@ -1063,7 +1073,10 @@ console.log('[FoggleBet] content script loaded', window.location.href)
     const legs = bookDivs
       .map(div => div.parentElement?.parentElement ?? null)
       .filter(Boolean)
-    if (legs.length < 2 || legs[0] === legs[1]) return
+    if (legs.length < 2 || legs[0] === legs[1]) {
+      hintWarnOnce(row, `leg containers not found (${legs.length} legs)`)
+      return
+    }
 
     if (getComputedStyle(row).position === 'static') row.style.position = 'relative'
 
@@ -1071,6 +1084,9 @@ console.log('[FoggleBet] content script loaded', window.location.href)
     const compactOddsSpans = Array.from(row.querySelectorAll('span.MuiTypography-body3'))
       .filter(s => /^[+-]?\d+$/.test(s.textContent?.trim() ?? ''))
       .filter(s => !legs.some(leg => leg.contains(s)))
+    if (compactOddsSpans.length < 2) {
+      hintWarnOnce(row, `compact odds spans not found (${compactOddsSpans.length})`)
+    }
 
     const rowRect = row.getBoundingClientRect()
     if (rowRect.width === 0) return
@@ -1292,11 +1308,19 @@ console.log('[FoggleBet] content script loaded', window.location.href)
   // ─── Row injection + MutationObserver ─────────────────────────────────────
 
   function injectAllRows() {
-    injectSettingsPanel()
+    try {
+      injectSettingsPanel()
+    } catch (err) {
+      console.warn('[FoggleBet] settings panel failed:', err)
+    }
     for (const row of findArbRows()) {
       if (isRowExpanded(row)) {
         injectButton(row)
-        injectKellyHints(row)
+        try {
+          injectKellyHints(row)
+        } catch (err) {
+          console.warn('[FoggleBet] Kelly hints failed:', err)
+        }
       }
     }
   }
