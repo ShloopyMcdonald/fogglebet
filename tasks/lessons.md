@@ -264,7 +264,27 @@ PTO's expanded book-odds table uses MUI's `MuiTableRow-root`/`MuiTableCell-root`
 
 **Pattern that works:** Make the row `position: relative` (the Log Bet button already relies on this), append overlay elements to the **row**, and place them with `getBoundingClientRect()` math relative to the leg boxes (`right = rowRect.right - legRect.left + gap`, vertically centered on the leg). Recompute position every 500ms injection tick (PTO layout shifts as odds update); re-render text only when a `odds|bankroll|fraction` key changes. `pointer-events: none` keeps overlays from intercepting clicks.
 
-**Testing without PTO login:** a local fixture page (fake row with `MuiTypography-navHeader`, two `div[aria-label]` book divs, `body3` odds spans, >2 `oddsRobotoMono` spans for isRowExpanded) plus a `chrome.storage` shim whose `set()` fires `onChanged` listeners lets the whole content script run in the preview browser end-to-end.
+**Testing without PTO login:** a local fixture page (fake row with `MuiTypography-navHeader`, two `div[aria-label]` book divs, `body3` odds spans, >2 `oddsRobotoMono` spans for isRowExpanded) plus a `chrome.storage` shim whose `set()` fires `onChanged` listeners lets the whole content script run in the preview browser end-to-end. The shim also needs `chrome.runtime.getManifest()` once the script logs its version.
+
+---
+
+## PTO's expanded card view has NO body3 odds spans — geometry beats class names
+
+**Bug:** Kelly hints never appeared on the user's screen even though the code shipped. Console showed `compact odds body3 spans, found 0` from BOTH the new hint code and the long-standing `scrapeRow` (line 59) — so this is a pre-existing condition, not a regression: in the expanded card layout PTO renders leg odds (`+120` / `-119`) as something other than `span.MuiTypography-body3`. `book_odds` still scraped fine because it reads the odds *table*, which is a separate DOM subtree.
+
+**Fix:** `injectKellyHints` falls back to a geometric lookup when fewer than 2 body3 odds spans exist — scan leaf elements for text matching `/^[+-]\d{2,4}$/`, keep those whose vertical center lies inside the leg box, and pick the one whose left edge is nearest the box's right edge. This is immune to MUI class renames.
+
+**Note:** `scrapeRow` still uses the body3-only path, so on these card rows its `odds` values come out null and the logged bet falls back to `book_odds`. Worth porting the same fallback there if leg odds ever come through wrong.
+
+**Debugging aid:** `extension/dom-probe.js` — paste in the PTO console on an expanded row to dump leg rects, every odds-like leaf node (tag/class/position), and what the geometric fallback would pick.
+
+---
+
+## An extension reload does NOT update already-open tabs
+
+**Correction:** User reported a shipped feature as completely missing. The code was correct and pushed; their PTO tab was still running the *previous* content script, which is why the old Log Bet button worked but nothing new appeared.
+
+**Rule:** After any extension change, the fix is `chrome://extensions` → ↻ **and** a hard refresh (⌘⇧R) of every PTO tab. To make staleness self-evident, `manifest.json` version is bumped on each change and the content script logs `content script v<version> loaded` on startup — if the console shows an old version, the tab is stale.
 
 ---
 
