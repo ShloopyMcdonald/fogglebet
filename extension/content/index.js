@@ -1041,19 +1041,40 @@ console.log(
 
   const HINT_EDGES = [0.01, 0.02, 0.03, 0.05, 0.07, 0.09]
 
+  // PTO sprinkles zero-width chars into text nodes and may use a Unicode
+  // minus; neither survives a plain trim(), so odds regexes miss without this.
+  function normOdds(s) {
+    return (s ?? '')
+      .replace(/[​-‍﻿]/g, '')
+      .replace(/−/g, '-')
+      .trim()
+  }
+
   function fmtStake(n) {
     return n >= 1000 ? `$${(n / 1000).toFixed(1)}k` : `$${n}`
   }
 
-  // Two compact lines: "¼K 1% $190 · 2% $380 · 3% $570" / "5% $950 · 7% $1.3k · 9% $1.7k"
+  // Three lines of two edges each — a 2-column grid narrow enough to sit in the
+  // ~150px gap left of the bet sides without colliding with the event name:
+  //   1% $12   5% $58
+  //   2% $23   7% $81
+  //   3% $35   9% $104
   function kellyHintLines(odds) {
-    const parts = HINT_EDGES.map(
-      e => `${Math.round(e * 100)}% ${fmtStake(kellyStake(odds, null, e))}`
-    )
-    return [
-      `${fractionLabel()}  ${parts.slice(0, 3).join(' · ')}`,
-      parts.slice(3).join(' · '),
-    ]
+    const cells = HINT_EDGES.map(e => ({
+      pct: `${Math.round(e * 100)}%`,
+      amt: fmtStake(kellyStake(odds, null, e)),
+    }))
+    const amtWidth = Math.max(...cells.map(c => c.amt.length))
+    const half = cells.length / 2
+    const lines = []
+    for (let i = 0; i < half; i++) {
+      const l = cells[i]
+      const r = cells[i + half]
+      lines.push(
+        `${l.pct} ${l.amt.padEnd(amtWidth)}  ${r.pct} ${r.amt}`
+      )
+    }
+    return lines
   }
 
   // Warn once per row per reason so the 500ms loop doesn't spam the console
@@ -1081,27 +1102,37 @@ console.log(
 
     if (getComputedStyle(row).position === 'static') row.style.position = 'relative'
 
-    // Primary odds source: body3 spans outside the leg containers (compact rows)
-    const compactOddsSpans = Array.from(row.querySelectorAll('span.MuiTypography-body3'))
-      .filter(s => /^[+-]?\d+$/.test(s.textContent?.trim() ?? ''))
-      .filter(s => !legs.some(leg => leg.contains(s)))
+    // Scope the odds search to the smallest subtree containing both legs (the
+    // MONEYLINE block). An expanded row also contains the full book-odds table
+    // — ~6800px wide with 140+ odds values — which would otherwise swamp the
+    // search.
+    let scope = legs[0]
+    while (scope && !scope.contains(legs[1])) scope = scope.parentElement
+    if (!scope) scope = row
 
-    // Fallback (expanded card views where odds aren't body3 spans): find the
-    // signed-odds text (+120 / -119) whose vertical center lines up with the
-    // leg box — layout-anchored, so it survives PTO class-name changes.
-    function geometricLegOdds(leg) {
+    const rowRect = row.getBoundingClientRect()
+    if (rowRect.width === 0) return
+
+    // Find the odds paired with a leg: the odds-shaped value whose vertical
+    // center lines up with the leg box, nearest to its right edge.
+    //
+    // Collapsed rows render odds as a text span; EXPANDED rows swap in an
+    // <input> (PTO lets you edit odds there), whose textContent is empty — so
+    // inputs must be read via .value or expanded rows find nothing.
+    function legOdds(leg) {
       const r = leg.getBoundingClientRect()
       let best = null
       let bestDist = Infinity
-      for (const el of row.querySelectorAll('span, p, div')) {
-        if (el.childElementCount !== 0) continue
-        if (el.classList.contains('fb-kelly-hint')) continue
-        const text = el.textContent?.trim() ?? ''
+      for (const el of scope.querySelectorAll('input, span, p, div')) {
+        if (legs.some(l => l.contains(el))) continue
+        const isInput = el.tagName === 'INPUT'
+        if (!isInput && el.childElementCount !== 0) continue
+        const text = normOdds(isInput ? el.value : el.textContent)
         if (!/^[+-]\d{2,4}$/.test(text)) continue
         const c = el.getBoundingClientRect()
         if (c.width === 0) continue
         const mid = (c.top + c.bottom) / 2
-        if (mid < r.top || mid > r.bottom) continue
+        if (mid < r.top - 4 || mid > r.bottom + 4) continue
         const dist = Math.abs(c.left - r.right)
         if (dist < bestDist) {
           bestDist = dist
@@ -1111,15 +1142,10 @@ console.log(
       return best ? parseInt(best.replace('+', ''), 10) : NaN
     }
 
-    const rowRect = row.getBoundingClientRect()
-    if (rowRect.width === 0) return
-
     for (let i = 0; i < legs.length; i++) {
-      const span = compactOddsSpans.length >= 2 ? compactOddsSpans[i] : null
-      let odds = span ? parseInt((span.textContent?.trim() ?? '').replace('+', ''), 10) : NaN
-      if (isNaN(odds)) odds = geometricLegOdds(legs[i])
+      const odds = legOdds(legs[i])
       if (isNaN(odds) || odds === 0) {
-        hintWarnOnce(row, `no odds found for leg ${i} (body3 spans: ${compactOddsSpans.length})`)
+        hintWarnOnce(row, `no odds found for leg ${i}`)
         continue
       }
 
@@ -1135,11 +1161,11 @@ console.log(
           position: absolute;
           z-index: 99996;
           font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-          font-size: 10px;
-          line-height: 1.45;
+          font-size: 9.5px;
+          line-height: 1.35;
           color: #8b93a7;
           opacity: 0.9;
-          white-space: nowrap;
+          white-space: pre;
           text-align: right;
           pointer-events: none;
         `
