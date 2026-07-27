@@ -268,6 +268,21 @@ PTO's expanded book-odds table uses MUI's `MuiTableRow-root`/`MuiTableCell-root`
 
 ---
 
+## Expanded PTO rows render leg odds in an `<input>`, not a text node
+
+**Bug:** Kelly hints worked on collapsed rows but never on expanded ones — and expanded is the only state we inject into, so the feature appeared completely dead. Two rounds of text-based selectors (body3 spans, then a geometric scan of all `span/p/div`) both found zero odds.
+
+**Root cause (confirmed on the live site):** when a row expands, PTO swaps the odds cell for an editable `<input value="+1083">`. An input's `textContent` is empty and its text lives in `.value`, so *no* text scan can ever see it.
+
+**Fixes in `injectKellyHints`:**
+1. When scanning for a leg's odds, include `input` elements and read `el.value` for them.
+2. Scope the scan to the smallest subtree containing both legs (the MONEYLINE block, ~616px). An expanded row also contains the full book-odds table — ~6800px wide with 140+ odds values — which otherwise swamps any nearest-match heuristic.
+3. Normalize zero-width chars (`​` etc.) and Unicode minus (`−`) before regex tests — PTO emits them and `trim()` does not remove them.
+
+**Testing method that finally worked:** the `playwright` MCP server uses a persistent profile (`~/.playwright-profile`) and picktheodds' low-hold page renders ~10 real rows **without login**. So the real content script can be injected into the live page (with a small `chrome.storage`/`chrome.runtime` shim) and verified end-to-end. Do this instead of guessing from fixtures — the fixture reproduced the *wrong* DOM three times in a row.
+
+---
+
 ## PTO's expanded card view has NO body3 odds spans — geometry beats class names
 
 **Bug:** Kelly hints never appeared on the user's screen even though the code shipped. Console showed `compact odds body3 spans, found 0` from BOTH the new hint code and the long-standing `scrapeRow` (line 59) — so this is a pre-existing condition, not a regression: in the expanded card layout PTO renders leg odds (`+120` / `-119`) as something other than `span.MuiTypography-body3`. `book_odds` still scraped fine because it reads the odds *table*, which is a separate DOM subtree.
