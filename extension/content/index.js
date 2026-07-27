@@ -18,10 +18,17 @@ console.log(
   let bankroll = DEFAULT_BANKROLL
   let kellyFraction = DEFAULT_KELLY_FRACTION
 
-  const FRACTION_LABELS = { '1': '1K', '0.5': '½K', '0.25': '¼K', '0.125': '⅛K' }
+  // Kelly fraction is stored as a fraction (0.25) but shown/edited as a
+  // percentage (25%) — that's how the user thinks about it.
+  // Round on the way out: 0.07 * 100 is 7.000000000000001 in floating point,
+  // which would surface as "7.0%" in the pill and "7.000000000000001" in the input.
+  function kellyPct() {
+    return Math.round(kellyFraction * 1000) / 10
+  }
 
   function fractionLabel() {
-    return FRACTION_LABELS[String(kellyFraction)] ?? `${kellyFraction}×K`
+    const pct = kellyPct()
+    return `${Number.isInteger(pct) ? pct : pct.toFixed(1)}%`
   }
 
   function applySettings(changes) {
@@ -38,8 +45,12 @@ console.log(
       // Remove existing hints — the injection loop re-renders with new settings
       document.querySelectorAll('.fb-kelly-hint').forEach(el => el.remove())
       updateSettingsPill()
+      syncSettingsEditor()
     }
   }
+
+  // Assigned when the settings panel is built; no-op until then.
+  let syncSettingsEditor = () => {}
 
   chrome.storage.local.get(['bankroll', 'kellyFraction'], (stored) => {
     applySettings({ bankroll: stored.bankroll, kellyFraction: stored.kellyFraction })
@@ -1202,14 +1213,76 @@ console.log(
     if (pill) pill.textContent = `${fmtBankroll(bankroll)} · ${fractionLabel()}`
   }
 
+  // Every control writes straight to chrome.storage; the onChanged listener
+  // re-renders hints and the pill, so edits apply instantly with no Save step.
+  function commitSettings(patch) {
+    chrome.storage.local.set(patch)
+  }
+
+  const BANKROLL_PRESETS = [10000, 25000, 50000, 100000]
+  const KELLY_PRESETS = [100, 50, 25, 12.5]
+
+  function styleField(el) {
+    el.style.cssText = `
+      width: 100%;
+      box-sizing: border-box;
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 4px;
+      color: #fff;
+      padding: 5px 8px;
+      font-size: 13px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      outline: none;
+    `
+    el.addEventListener('focus', () => { el.style.borderColor = '#2563eb'; el.select() })
+    el.addEventListener('blur', () => { el.style.borderColor = '#334155' })
+  }
+
+  function makeChipRow(values, format, onPick) {
+    const row = document.createElement('div')
+    row.style.cssText = 'display: flex; gap: 4px; margin-top: 5px;'
+    const chips = []
+    for (const value of values) {
+      const chip = document.createElement('button')
+      chip.textContent = format(value)
+      chip.dataset.fbValue = String(value)
+      chip.style.cssText = `
+        flex: 1;
+        background: #0f172a;
+        border: 1px solid #334155;
+        border-radius: 4px;
+        color: #cbd5e1;
+        padding: 3px 0;
+        font-size: 11px;
+        cursor: pointer;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      `
+      chip.addEventListener('click', () => onPick(value))
+      row.appendChild(chip)
+      chips.push(chip)
+    }
+    return { row, chips }
+  }
+
+  function highlightChips(chips, current) {
+    for (const chip of chips) {
+      const active = Math.abs(parseFloat(chip.dataset.fbValue) - current) < 1e-9
+      chip.style.borderColor = active ? '#2563eb' : '#334155'
+      chip.style.background = active ? '#12244d' : '#0f172a'
+      chip.style.color = active ? '#fff' : '#cbd5e1'
+    }
+  }
+
   function injectSettingsPanel() {
     if (document.getElementById('fb-kelly-panel')) return
 
     const panel = document.createElement('div')
     panel.id = 'fb-kelly-panel'
+    // Raised clear of PTO's own floating action button in the bottom-right.
     panel.style.cssText = `
       position: fixed;
-      bottom: 16px;
+      bottom: 76px;
       right: 16px;
       z-index: 99997;
       font-family: system-ui, sans-serif;
@@ -1219,114 +1292,90 @@ console.log(
       gap: 6px;
     `
 
-    // Expanded editor (hidden until pill is clicked)
     const editor = document.createElement('div')
     editor.style.cssText = `
       display: none;
       background: #1a1a2e;
       border: 1px solid #2d2d4e;
       border-radius: 8px;
-      padding: 10px 12px;
-      width: 190px;
-      box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+      padding: 11px 12px;
+      width: 214px;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.55);
     `
 
-    const brLabel = document.createElement('div')
-    brLabel.textContent = 'Bankroll ($)'
-    brLabel.style.cssText = 'font-size: 10px; color: #9ca3af; margin-bottom: 3px;'
+    function label(text) {
+      const el = document.createElement('div')
+      el.textContent = text
+      el.style.cssText = 'font-size: 10px; color: #9ca3af; margin-bottom: 4px; letter-spacing: 0.03em;'
+      return el
+    }
 
+    // ── Bankroll ──
     const brInput = document.createElement('input')
     brInput.type = 'number'
     brInput.min = '1'
-    brInput.step = '100'
-    brInput.style.cssText = `
-      width: 100%;
-      box-sizing: border-box;
-      background: #0f172a;
-      border: 1px solid #334155;
-      border-radius: 4px;
-      color: #fff;
-      padding: 4px 8px;
-      font-size: 13px;
-      margin-bottom: 8px;
-      outline: none;
-    `
-
-    const frLabel = document.createElement('div')
-    frLabel.textContent = 'Kelly fraction'
-    frLabel.style.cssText = 'font-size: 10px; color: #9ca3af; margin-bottom: 3px;'
-
-    const frRow = document.createElement('div')
-    frRow.style.cssText = 'display: flex; gap: 4px;'
-
-    const fractions = [
-      { label: '1', value: 1 },
-      { label: '½', value: 0.5 },
-      { label: '¼', value: 0.25 },
-      { label: '⅛', value: 0.125 },
-    ]
-    const frBtns = []
-
-    function highlightFraction(selected) {
-      for (const { btn, value } of frBtns) {
-        btn.style.borderColor = value === selected ? '#2563eb' : '#334155'
-        btn.style.background = value === selected ? '#12244d' : '#0f172a'
-      }
+    brInput.step = '1000'
+    styleField(brInput)
+    const commitBankroll = () => {
+      const n = parseFloat(brInput.value)
+      if (!isNaN(n) && n > 0) commitSettings({ bankroll: n })
+      else brInput.value = String(bankroll)
     }
-
-    let pendingFraction = kellyFraction
-
-    for (const { label, value } of fractions) {
-      const btn = document.createElement('button')
-      btn.textContent = label
-      btn.style.cssText = `
-        flex: 1;
-        background: #0f172a;
-        border: 1px solid #334155;
-        border-radius: 4px;
-        color: #e5e5e5;
-        padding: 4px 0;
-        font-size: 13px;
-        cursor: pointer;
-      `
-      btn.addEventListener('click', () => {
-        pendingFraction = value
-        highlightFraction(value)
-      })
-      frRow.appendChild(btn)
-      frBtns.push({ btn, value })
-    }
-
-    const applyBtn = document.createElement('button')
-    applyBtn.textContent = 'Apply'
-    applyBtn.style.cssText = `
-      width: 100%;
-      margin-top: 8px;
-      background: #2563eb;
-      border: none;
-      border-radius: 4px;
-      color: #fff;
-      padding: 5px 0;
-      font-size: 12px;
-      font-weight: 600;
-      cursor: pointer;
-    `
-    applyBtn.addEventListener('click', () => {
-      const br = parseFloat(brInput.value)
-      const settings = { kellyFraction: pendingFraction }
-      if (!isNaN(br) && br > 0) settings.bankroll = br
-      // storage.onChanged fires applySettings, which refreshes hints + pill
-      chrome.storage.local.set(settings)
-      editor.style.display = 'none'
+    brInput.addEventListener('change', commitBankroll)
+    brInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { commitBankroll(); brInput.blur() }
+      if (e.key === 'Escape') { brInput.value = String(bankroll); brInput.blur() }
     })
 
-    editor.appendChild(brLabel)
-    editor.appendChild(brInput)
-    editor.appendChild(frLabel)
-    editor.appendChild(frRow)
-    editor.appendChild(applyBtn)
+    const brChips = makeChipRow(
+      BANKROLL_PRESETS,
+      v => `$${v / 1000}k`,
+      v => commitSettings({ bankroll: v })
+    )
 
-    // Collapsed pill
+    // ── Kelly percentage ──
+    const kInput = document.createElement('input')
+    kInput.type = 'number'
+    kInput.min = '1'
+    kInput.max = '100'
+    kInput.step = '5'
+    styleField(kInput)
+    const commitKelly = () => {
+      const n = parseFloat(kInput.value)
+      if (!isNaN(n) && n > 0 && n <= 100) commitSettings({ kellyFraction: n / 100 })
+      else kInput.value = String(kellyPct())
+    }
+    kInput.addEventListener('change', commitKelly)
+    kInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { commitKelly(); kInput.blur() }
+      if (e.key === 'Escape') { kInput.value = String(kellyPct()); kInput.blur() }
+    })
+
+    const kChips = makeChipRow(
+      KELLY_PRESETS,
+      v => `${v}%`,
+      v => commitSettings({ kellyFraction: v / 100 })
+    )
+
+    editor.appendChild(label('BANKROLL'))
+    editor.appendChild(brInput)
+    editor.appendChild(brChips.row)
+    const spacer = document.createElement('div')
+    spacer.style.height = '10px'
+    editor.appendChild(spacer)
+    editor.appendChild(label('KELLY %'))
+    editor.appendChild(kInput)
+    editor.appendChild(kChips.row)
+
+    // Keep the open editor in sync when settings change from anywhere
+    // (chips, popup, another tab).
+    syncSettingsEditor = () => {
+      if (document.activeElement !== brInput) brInput.value = String(bankroll)
+      if (document.activeElement !== kInput) kInput.value = String(kellyPct())
+      highlightChips(brChips.chips, bankroll)
+      highlightChips(kChips.chips, kellyPct())
+    }
+
     const pill = document.createElement('button')
     pill.id = 'fb-kelly-pill'
     pill.style.cssText = `
@@ -1340,22 +1389,27 @@ console.log(
       cursor: pointer;
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
       box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+      white-space: nowrap;
     `
-    pill.title = 'FoggleBet — bankroll & Kelly fraction'
+    pill.title = 'FoggleBet — bankroll & Kelly %'
     pill.addEventListener('click', () => {
       const opening = editor.style.display === 'none'
-      if (opening) {
-        brInput.value = String(bankroll)
-        pendingFraction = kellyFraction
-        highlightFraction(kellyFraction)
-      }
       editor.style.display = opening ? 'block' : 'none'
+      if (opening) { syncSettingsEditor(); brInput.focus() }
+    })
+
+    // Click outside closes the editor
+    document.addEventListener('mousedown', e => {
+      if (editor.style.display !== 'none' && !panel.contains(e.target)) {
+        editor.style.display = 'none'
+      }
     })
 
     panel.appendChild(editor)
     panel.appendChild(pill)
     document.body.appendChild(panel)
     updateSettingsPill()
+    syncSettingsEditor()
   }
 
   // ─── Row injection + MutationObserver ─────────────────────────────────────
