@@ -268,6 +268,21 @@ PTO's expanded book-odds table uses MUI's `MuiTableRow-root`/`MuiTableCell-root`
 
 ---
 
+## Kalshi structures matchups as ONE MARKET PER ENTITY — yes/no sub_titles are identical
+
+**Discovery (live API, invalidated the doc-derived design):** For match/game markets, Kalshi does NOT put the two competitors on the yes/no sides of one market. Each competitor gets their OWN market (ticker suffix names them: `...SDAZ-SD`, `...SDAZ-AZ`), and on each market `yes_sub_title === no_sub_title === the subject` ("San Diego" on both). So "buy the other side" means "buy YES on the sibling market", never "buy NO".
+
+**Consequences:**
+- A PTO Kalshi leg always means **buy YES** on its linked market. `matchSide` verifies the market subject (`yes_sub_title`, falling back to `title`) matches the PTO side label; anything else blocks.
+- Match against `yes_sub_title`, NOT `title` — titles like "San Diego vs Arizona Winner?" contain BOTH competitors and would false-positive the opponent.
+- **PTO really does link wrong markets:** live E2E found "Jessica Bouzas Maneiro" linked to `KXWTAMATCH-26AUG02BOUARS-ARS` — her OPPONENT Arseneault's market. The verification blocked it with `side_mismatch`.
+
+**Demo API facts (verified live):** base `https://external-api.demo.kalshi.co/trade-api/v2`; RSA-PSS signing per docs works with Node `crypto.sign('sha256', ..., {padding: RSA_PKCS1_PSS_PADDING, saltLength: 32})`; V2 create-order `POST /portfolio/events/orders` works on demo with native `time_in_force: 'immediate_or_cancel'` (fixed-point dollar strings for price/count); orderbook endpoint returns `orderbook_fp: {yes_dollars, no_dollars}` bids-only; demo has cloned sports series (KXWTAMATCH/KXMLBGAME/KXWNBAGAME) with thin but real liquidity.
+
+**Test recipe:** direct route curl for mismatch + fill cases (a 2-contract fill costs ~$1 of demo money), then playwright on the live PTO low-hold page with a chrome shim whose `sendMessage` proxies through `page.exposeFunction` + `page.request.post` — page-context fetch to localhost is CORS-blocked (the real background worker is exempt via host_permissions), and the playwright server's node lacks global fetch, so `page.request` is the reliable proxy.
+
+---
+
 ## Expanded PTO rows render leg odds in an `<input>`, not a text node
 
 **Bug:** Kelly hints worked on collapsed rows but never on expanded ones — and expanded is the only state we inject into, so the feature appeared completely dead. Two rounds of text-based selectors (body3 spans, then a geometric scan of all `span/p/div`) both found zero odds.

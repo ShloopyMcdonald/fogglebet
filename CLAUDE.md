@@ -1,7 +1,7 @@
 # CLAUDE.md — FoggleBet North Star
 
 ## Purpose
-FoggleBet is a personal +EV sports betting tracker. A Chrome extension overlays a button on picktheodds.com — clicking it captures bet data and sends it to a deployed dashboard. The app automatically fetches closing odds and game results from Action Network so every bet can be evaluated for Closing Line Value (CLV) and actual P&L.
+FoggleBet is a personal +EV sports betting tool. **v2 (current): sandbox paper trading.** The Chrome extension injects "Take" buttons on Kalshi legs of picktheodds rows; clicking one picks an edge (1/3/5/7/9%) and places a real price-capped IOC order on the KALSHI DEMO exchange via `POST /api/kalshi/take` (web app signs with RSA keys in env; see `web/lib/kalshi.ts`). Orders are taker-only, never filled worse than the PTO-displayed odds, sized by min(Kelly stake, book liquidity). Markets are verified before placing (PTO sometimes links the wrong market — blocked on mismatch). The Kalshi demo account is the record for these takes; they are NOT written to Supabase. The v1 Log Bet flow (capture both legs → dashboard) was removed from the extension; the dashboard still serves historical bets and their CLV/results pipeline.
 
 This is a solo-use, production-grade tool. Speed and reliability matter more than scalability.
 

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "FoggleBet",
-  "version": "1.4.0",
-  "description": "Log arb bets from picktheodds.com to your FoggleBet dashboard",
+  "version": "2.0.0",
+  "description": "Paper trade picktheodds bets on Kalshi demo with Kelly sizing",
   "permissions": [
     "storage",
     "activeTab"
