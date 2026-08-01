@@ -5,6 +5,10 @@ import {
   maxAcceptablePriceCents,
   availableAtCap,
   kellyContracts,
+  bestAvailablePriceCents,
+  checkOddsAgreement,
+  effectiveCostAtCents,
+  probToAmerican,
 } from '@/lib/kalshi-math'
 
 // Places a taker-only, price-capped IOC order on Kalshi (demo). No DB writes —
@@ -112,6 +116,34 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: `Orderbook fetch failed: ${err}` }, { status: 502 })
   }
 
+  // Stopper: the odds actually executable on Kalshi right now (best contract
+  // price + fees, converted to American odds) must agree with what PTO
+  // displayed. Disagreement in either direction = stale row or wrong market.
+  const bestCents = bestAvailablePriceCents(orderbook, side)
+  if (isNaN(bestCents)) {
+    return NextResponse.json(
+      { blocked: 'no_liquidity', cap_cents: capCents, available: 0, market: marketInfo },
+      { status: 422 }
+    )
+  }
+  const agreement = checkOddsAgreement(odds, bestCents)
+  if (!agreement.ok) {
+    console.warn(
+      `[kalshi/take] odds mismatch: PTO ${odds} (p=${agreement.pto_prob.toFixed(3)})` +
+        ` vs Kalshi best ${bestCents}¢ -> ${agreement.kalshi_odds} (p=${agreement.kalshi_prob.toFixed(3)})`
+    )
+    return NextResponse.json(
+      {
+        blocked: 'odds_mismatch',
+        pto_odds: odds,
+        kalshi_odds: agreement.kalshi_odds,
+        best_price_cents: bestCents,
+        market: marketInfo,
+      },
+      { status: 422 }
+    )
+  }
+
   const available = availableAtCap(orderbook, side, capCents)
   const kelly = kellyContracts(bankroll, edge, kelly_fraction, odds, capCents)
   const count = Math.min(kelly, available)
@@ -172,6 +204,10 @@ export async function POST(request: NextRequest) {
       filled_count: filled,
       requested_count: count,
       avg_price_cents: Number.isFinite(perContract) ? Math.round(perContract * 100) : null,
+      // Fee-inclusive American odds actually achieved on the fill
+      effective_odds: Number.isFinite(perContract)
+        ? probToAmerican(effectiveCostAtCents(Math.round(perContract * 100)))
+        : null,
       cost_dollars: costDollars,
       fee_dollars: feeDollars,
       cap_cents: capCents,

@@ -5,7 +5,12 @@ import {
   availableAtCap,
   kellyContracts,
   matchSide,
+  bestAvailablePriceCents,
+  checkOddsAgreement,
+  probToAmerican,
+  effectiveCostAtCents,
   KALSHI_FEE_RATE,
+  ODDS_AGREEMENT_TOLERANCE,
   type KalshiOrderbookFp,
 } from '../kalshi-math'
 
@@ -96,6 +101,64 @@ describe('availableAtCap', () => {
   it('floors fractional contract counts', () => {
     const b: KalshiOrderbookFp = { no_dollars: [['0.50', '10.75']] }
     expect(availableAtCap(b, 'yes', 50)).toBe(10)
+  })
+})
+
+describe('probToAmerican', () => {
+  it('round-trips with americanToImpliedProb', () => {
+    expect(probToAmerican(0.5238)).toBe(-110)
+    expect(probToAmerican(0.4)).toBe(150)
+    expect(probToAmerican(americanToImpliedProb(-1237))).toBe(-1237)
+    expect(probToAmerican(americanToImpliedProb(573))).toBe(573)
+  })
+})
+
+describe('bestAvailablePriceCents', () => {
+  const book: KalshiOrderbookFp = {
+    yes_dollars: [['0.40', '100.00'], ['0.55', '50.00']], // NO asks at 60c, 45c
+    no_dollars: [['0.30', '200.00'], ['0.45', '80.00']],  // YES asks at 70c, 55c
+  }
+  it('finds the cheapest executable price crossing the opposite side', () => {
+    expect(bestAvailablePriceCents(book, 'yes')).toBe(55)
+    expect(bestAvailablePriceCents(book, 'no')).toBe(45)
+  })
+  it('NaN for empty books and zero-count levels', () => {
+    expect(bestAvailablePriceCents({}, 'yes')).toBeNaN()
+    expect(bestAvailablePriceCents({ no_dollars: [['0.50', '0.00']] }, 'yes')).toBeNaN()
+  })
+})
+
+describe('checkOddsAgreement (the stopper)', () => {
+  it('accepts when Kalshi effective odds ≈ PTO odds', () => {
+    // -110 → implied .5238; 50c + fee = .5175 → diff .0063
+    const r = checkOddsAgreement(-110, 50)
+    expect(r.ok).toBe(true)
+    expect(r.kalshi_odds).toBeLessThan(0) // near even money, slight fav pricing
+  })
+  it('blocks when Kalshi is much cheaper than PTO implies (wrong/stale market)', () => {
+    // PTO +300 → implied .25; best price 50c + fee = .5175 → diff .2675
+    const r = checkOddsAgreement(300, 50)
+    expect(r.ok).toBe(false)
+  })
+  it('blocks when Kalshi is much more expensive than PTO implies', () => {
+    // PTO -110 → implied .5238; best price 75c + fee = .7631
+    const r = checkOddsAgreement(-110, 75)
+    expect(r.ok).toBe(false)
+  })
+  it('tolerance boundary: one cent of price stays within tolerance', () => {
+    // cap for -110 is 50; a book at 49c or 51c is still "the same odds"
+    expect(checkOddsAgreement(-110, 49).ok).toBe(true)
+    expect(checkOddsAgreement(-110, 52).ok).toBe(true) // .5485 vs .5238 = .0247 < .03
+    expect(checkOddsAgreement(-110, 54).ok).toBe(false) // .5686 vs .5238 = .0448 > .03
+  })
+  it('reports fee-inclusive Kalshi odds', () => {
+    const r = checkOddsAgreement(-110, 50)
+    expect(r.kalshi_prob).toBeCloseTo(effectiveCostAtCents(50))
+    expect(r.kalshi_odds).toBe(probToAmerican(effectiveCostAtCents(50)))
+  })
+  it('exposes a sane tolerance constant', () => {
+    expect(ODDS_AGREEMENT_TOLERANCE).toBeGreaterThan(0.01)
+    expect(ODDS_AGREEMENT_TOLERANCE).toBeLessThanOrEqual(0.05)
   })
 })
 

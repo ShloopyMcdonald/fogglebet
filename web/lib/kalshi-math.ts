@@ -34,6 +34,20 @@ export function americanNetDecimal(odds: number): number {
   return odds > 0 ? odds / 100 : 100 / Math.abs(odds)
 }
 
+// Per-contract cost of buying at p cents, INCLUDING the taker fee, expressed
+// as a probability-scale number (0..1). This is the true break-even
+// probability of the position.
+export function effectiveCostAtCents(p: number): number {
+  const price = p / 100
+  return price + KALSHI_FEE_RATE * price * (1 - price)
+}
+
+// Probability → American odds (rounded).
+export function probToAmerican(prob: number): number {
+  if (prob >= 0.5) return -Math.round((100 * prob) / (1 - prob))
+  return Math.round((100 * (1 - prob)) / prob)
+}
+
 // Highest cent price we may pay per contract such that price + taker fee does
 // not exceed the PTO-implied probability (PTO odds already include fees).
 // Returns 0 when no price is acceptable.
@@ -41,11 +55,51 @@ export function maxAcceptablePriceCents(odds: number): number {
   const target = americanToImpliedProb(odds) + 1e-9
   let best = 0
   for (let p = 1; p <= 99; p++) {
-    const price = p / 100
-    const effective = price + KALSHI_FEE_RATE * price * (1 - price)
-    if (effective <= target) best = p
+    if (effectiveCostAtCents(p) <= target) best = p
   }
   return best
+}
+
+// Cheapest price (cents) at which `side` can actually be bought right now —
+// the best executable level, crossing the opposite side's bids. NaN when the
+// book is empty.
+export function bestAvailablePriceCents(
+  orderbook: KalshiOrderbookFp | null | undefined,
+  side: KalshiSide
+): number {
+  const oppositeBids = (side === 'yes' ? orderbook?.no_dollars : orderbook?.yes_dollars) ?? []
+  let best = NaN
+  for (const level of oppositeBids) {
+    if (!Array.isArray(level) || level.length < 2) continue
+    const opp = parseFloat(level[0])
+    const count = parseFloat(level[1])
+    if (isNaN(opp) || isNaN(count) || count <= 0) continue
+    const ourCents = 100 - Math.round(opp * 100)
+    if (ourCents >= 1 && ourCents <= 99 && (isNaN(best) || ourCents < best)) best = ourCents
+  }
+  return best
+}
+
+// Stopper: the odds actually executable on Kalshi (best price + fees, as
+// American odds) must agree with what PTO displayed. A material disagreement
+// in EITHER direction means the row is stale or the linked market is wrong —
+// don't place. Tolerance is in probability points; one cent of price moves
+// the effective probability ~1pt, so 3pts ≈ "the same odds, allowing for
+// cent granularity and PTO refresh lag".
+export const ODDS_AGREEMENT_TOLERANCE = 0.03
+
+export function checkOddsAgreement(
+  ptoOdds: number,
+  bestPriceCents: number
+): { ok: boolean; kalshi_odds: number; kalshi_prob: number; pto_prob: number } {
+  const kalshiProb = effectiveCostAtCents(bestPriceCents)
+  const ptoProb = americanToImpliedProb(ptoOdds)
+  return {
+    ok: Math.abs(kalshiProb - ptoProb) <= ODDS_AGREEMENT_TOLERANCE,
+    kalshi_odds: probToAmerican(kalshiProb),
+    kalshi_prob: kalshiProb,
+    pto_prob: ptoProb,
+  }
 }
 
 // ── Orderbook liquidity ───────────────────────────────────────────────────────

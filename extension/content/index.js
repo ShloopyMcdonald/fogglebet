@@ -310,6 +310,7 @@ console.log(
     market_not_tradable: '✗ closed',
     no_liquidity: '✗ no liquidity',
     no_fill: '✗ no fill',
+    odds_mismatch: '✗ odds differ',
   }
 
   function describeMarket(market) {
@@ -383,6 +384,11 @@ console.log(
             let tooltip = describeMarket(res.data?.market)
             if (res.blocked === 'no_liquidity') {
               tooltip = `Nothing available at ≤${res.data?.cap_cents}¢ (cap from ${oddsStr}). ${tooltip}`
+            }
+            if (res.blocked === 'odds_mismatch') {
+              const ko = res.data?.kalshi_odds
+              tooltip = `PTO shows ${oddsStr} but Kalshi's real price (${res.data?.best_price_cents}¢ + fees) ` +
+                `is ${ko > 0 ? '+' : ''}${ko} — stale row or wrong market. ${tooltip}`
             }
             setTakeState(btn, 'blocked', label, tooltip || res.blocked)
             resetTakeLater(btn, 8000)
